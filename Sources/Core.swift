@@ -89,7 +89,7 @@ struct TaskItem: Identifiable, Equatable {
     let line: Int        // index in file at read time; only a hint, writes match by exact text
     let raw: String
     let prefix: String   // indent + "- ["
-    let status: Character
+    var status: Character   // var: a closed task is tested against a section's filters as if it were open
     let body: String
 
     // Derived once at parse time: the list re-renders often and each of these is a regex.
@@ -98,6 +98,7 @@ struct TaskItem: Identifiable, Equatable {
     let priority: String?
     let tags: [String]
     let recurrence: String?   // rule text after 🔁, e.g. "every week"
+    let closedOn: String?     // date after ✅ or ❌
     let hasRadarTag: Bool
     /// Body without tags, dates and priority.
     let title: String
@@ -116,6 +117,7 @@ struct TaskItem: Identifiable, Equatable {
             priority: groups("([🔺⏫🔼🔽⏬])", body)?[1],
             tags: allMatches(tagRe, body),
             recurrence: groups("🔁\\uFE0F? *([A-Za-z0-9, ]*[A-Za-z0-9])", body)?[1],
+            closedOn: groups("[✅❌]\\uFE0F? *(\(dateRe))", body)?[1],
             hasRadarTag: groups(radarTagRe, body) != nil,
             title: sub(sub(sub(sub(body, "\\s*" + recurRe), "\\s*" + metaDateRe), "\\s*" + prioRe), "\\s*" + tagRe).trimmed)
     }
@@ -130,6 +132,7 @@ enum Edit {
     case subtag(String)   // "", "/ask", "/wait"
     case text(String)     // whole body after the checkbox
     case recurrence(String?) // rule in Tasks syntax ("every week"), nil removes it
+    case reopen              // a closed or cancelled task back to open
 }
 
 /// Append at end of line, but keep a trailing block id (^abc) last.
@@ -195,6 +198,10 @@ func edit(_ e: Edit, _ t: TaskItem, today: String = day(), comment: String? = ni
         }
     case .text(let s):
         body = oneLine(s)
+    case .reopen:
+        // ponytail: reopening a recurring task leaves the next occurrence that closing it created
+        status = " "
+        body = sub(body, "\\s*[✅❌]\\uFE0F? *" + dateRe)
     case .recurrence(let rule):
         body = sub(body, "\\s*" + recurRe)
         if let rule {
@@ -298,7 +305,18 @@ struct Section: Identifiable {
     var children: [Section] = []  // filled only for merged sections
     var id: String { name }
 
-    func select(_ tasks: [TaskItem], sort: Sort = .due) -> [TaskItem] {
+    /// `closed`: the closed and cancelled tasks that would be in this section if they were still open,
+    /// latest closed first.
+    func select(_ tasks: [TaskItem], sort: Sort = .due, closed: Bool = false) -> [TaskItem] {
+        if closed {
+            let f = tasks.filter { t in
+                guard !t.isOpen else { return false }
+                var probe = t
+                probe.status = " " // so the query's own "not done" doesn't reject it
+                return preds.allSatisfy { $0(probe) }
+            }
+            return f.sorted { a, b in (a.closedOn ?? "", a.line) > (b.closedOn ?? "", b.line) }
+        }
         var f = tasks.filter { t in preds.allSatisfy { $0(t) } }
         switch sort {
         case .due: f.sort { a, b in (a.due ?? "9999", a.line) < (b.due ?? "9999", b.line) }
@@ -543,6 +561,10 @@ func selfTest() {
     eq(sections[1].select(tasks).map(\.title).joined(separator: ","), "d")
     precondition(sections[2].error != nil && sections[0].error == nil)
     precondition(sections[3].select(tasks).count == 6)
+    eq(sections[0].select(tasks, closed: true).map(\.title).joined(separator: ","), "c") // closed, due today, not /wait
+    precondition(sections[1].select(tasks, closed: true).isEmpty && sections[3].select(tasks, closed: true).count == 1)
+    eq(edit(.reopen, tasks[2]), "- [ ] c #mod/radar 📅 2026-11-23")
+    eq(tasks[2].closedOn ?? "nil", "2026-11-23")
 
     let (a, b, d, f, g) = (tasks[0], tasks[1], tasks[3], tasks[5], tasks[6])
     let td = "2026-11-23"

@@ -127,3 +127,7 @@
 "Daily reminder for this section" = "Tägliche Erinnerung für diesen Abschnitt";
 "Sends this section's tasks in 5 seconds" = "Sendet die Aufgaben dieses Abschnitts in 5 Sekunden";
 "on" = "an";
+"Closed tasks" = "Erledigte Aufgaben";
+"Reopen" = "Wieder öffnen";
+"Completed" = "Erledigt";
+"Cancelled" = "Abgebrochen";

@@ -34,6 +34,8 @@ func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en",
     - [ ] Book a room for the workshop [[Roadmap]] #roadmap ⏫ 🔁 every week 📅 \(d(1))
     - [ ] Collect feedback on the new onboarding #roadmap
     - [ ] Renew the domain 🔼 📅 \(d(0))
+    - [x] Draft the agenda [[Planning notes]] #sync 📅 \(d(0)) ✅ \(d(0))
+    - [-] Order printed badges #roadmap ❌ \(d(-1))
     """
     let file = NSTemporaryDirectory() + "taskradarbar-demo.md"
     try! note.write(toFile: file, atomically: true, encoding: .utf8)
@@ -59,6 +61,8 @@ func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en",
         .background(Color(white: dark ? 0.17 : 0.965)))
     // "notify" as an extra argument opens the meeting reminders row
     if CommandLine.arguments.contains("notify") { store.meetingLead = ["Today - meetings": 60]; store.notifying = true }
+    // "closed": the closed tasks of the section
+    if CommandLine.arguments.contains("closed") { store.showClosed = true }
     // "daily": the daily reminder row of a section without meetings
     if CommandLine.arguments.contains("daily") { store.sectionName = "Today"; store.dailyTime = ["Today": 570]; store.notifying = true }
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -72,7 +76,7 @@ func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en",
     guard let content = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { fatalError("no bitmap") }
     host.cacheDisplay(in: host.bounds, to: content)
 
-    let shot = frameShot(content, size: size, count: store.visible.count)
+    let shot = frameShot(content, size: size, count: store.openCount)
     try! shot.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     print("wrote \(path)")
 }

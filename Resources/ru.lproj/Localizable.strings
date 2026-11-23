@@ -127,3 +127,7 @@
 "Daily reminder for this section" = "Ежедневное напоминание по разделу";
 "Sends this section's tasks in 5 seconds" = "Пришлёт задачи этого раздела через 5 секунд";
 "on" = "вкл";
+"Closed tasks" = "Закрытые задачи";
+"Reopen" = "Вернуть в работу";
+"Completed" = "Закрыта";
+"Cancelled" = "Отменена";

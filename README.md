@@ -14,6 +14,7 @@ A macOS menu bar app that shows the tasks of one [Obsidian](https://obsidian.md)
 - **Daily reminder for a section.** In a section without timed meetings the same bell sets a time of day: the app then sends one notification with everything in that section, every day at that time.
 - Both notifications lead with the task count and list the most urgent tasks first; a click opens the popover on that section.
 - **Search**, three sort modes, light and dark mode.
+- **Closed tasks.** The sort menu can switch the list to the tasks already completed or cancelled in the chosen section, latest first; one click reopens a task.
 - **Interface languages:** English, German, French, Russian.
 - **One line per action.** The app re-reads the note, finds the task by its exact text, replaces that single line, writes atomically and verifies. If the line changed in the meantime, nothing is written.
 

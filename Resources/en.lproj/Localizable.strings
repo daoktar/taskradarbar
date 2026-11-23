@@ -127,3 +127,7 @@
 "Daily reminder for this section" = "Daily reminder for this section";
 "Sends this section's tasks in 5 seconds" = "Sends this section's tasks in 5 seconds";
 "on" = "on";
+"Closed tasks" = "Closed tasks";
+"Reopen" = "Reopen";
+"Completed" = "Completed";
+"Cancelled" = "Cancelled";

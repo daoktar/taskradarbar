@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func updateTitle() {
-        item.button?.title = " \(store.visible.count)"
+        item.button?.title = " \(store.openCount)"
         guard shownIcon != store.trayIcon else { return }
         shownIcon = store.trayIcon
         switch store.trayIcon {
@@ -218,7 +218,11 @@ final class Store: ObservableObject {
     }
 
     var section: Section? { sections.first { $0.name == sectionName } ?? sections.first }
-    var visible: [TaskItem] { section?.select(tasks, sort: sort) ?? [] }
+    var visible: [TaskItem] { section?.select(tasks, sort: sort, closed: showClosed) ?? [] }
+    /// Sort menu → "Closed tasks": the list shows what was closed in this section instead of what is open.
+    @Published var showClosed = false
+    /// The menu bar counter always counts open tasks.
+    var openCount: Int { section?.select(tasks).count ?? 0 }
 
     // Search narrows the list on screen only; counters keep showing the whole section.
     @Published var searching = false
@@ -470,7 +474,7 @@ struct ContentView: View {
         if let sec = store.section, !sec.children.isEmpty {
             // merged section: one group per original block, e.g. per meeting
             ForEach(sec.children) { c in
-                let items = c.select(store.tasks, sort: store.sort).filter(store.matches)
+                let items = c.select(store.tasks, sort: store.sort, closed: store.showClosed).filter(store.matches)
                 if !items.isEmpty {
                     // group header: a full-width band; click folds the group. Search shows matches even in folded groups.
                     let folded = store.collapsed.contains(c.name) && !(store.searching && !store.query.trimmed.isEmpty)
@@ -499,12 +503,12 @@ struct ContentView: View {
                     if folded {
                         Divider()
                     } else {
-                        ForEach(items) { t in TaskRow(task: t); Divider() }
+                        ForEach(items) { t in if t.isOpen { TaskRow(task: t) } else { ClosedRow(task: t) }; Divider() }
                     }
                 }
             }
         } else {
-            ForEach(store.shown) { t in TaskRow(task: t); Divider() }
+            ForEach(store.shown) { t in if t.isOpen { TaskRow(task: t) } else { ClosedRow(task: t) }; Divider() }
         }
     }
 
@@ -513,7 +517,7 @@ struct ContentView: View {
             Menu {
                 Picker("", selection: Binding(get: { store.section?.name ?? "" }, set: { store.sectionName = $0 })) {
                     ForEach(store.sections) { s in
-                        Text("\(s.name) · \(s.select(store.tasks).count)").tag(s.name)
+                        Text("\(s.name) · \(s.select(store.tasks, closed: store.showClosed).count)").tag(s.name)
                     }
                 }
                 .pickerStyle(.inline)
@@ -543,8 +547,11 @@ struct ContentView: View {
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
+                Divider()
+                Toggle(L("Closed tasks"), isOn: $store.showClosed)
             } label: {
                 Image(systemName: "arrow.up.arrow.down").font(.system(size: 16))
+                    .foregroundStyle(store.showClosed ? Color.accentColor : Color.primary) // a reminder that the list is not the open tasks
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -650,6 +657,31 @@ func prioColor(_ p: String?) -> Color {
     case "🔽": return .blue
     case "⏬": return .gray
     default: return .secondary
+    }
+}
+
+/// A closed or cancelled task: what it was, when it was closed, and one action — back to open.
+struct ClosedRow: View {
+    let task: TaskItem
+    @EnvironmentObject var store: Store
+
+    var body: some View {
+        let cancelled = task.status == "-"
+        HStack(alignment: .top, spacing: 8) {
+            Button { store.apply(.reopen, to: task) } label: {
+                Image(systemName: cancelled ? "xmark.circle.fill" : "checkmark.circle.fill").font(.title2).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(L("Reopen"))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(store.rich(task)).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true).help(task.title)
+                Text((cancelled ? L("Cancelled") : L("Completed")) + (task.closedOn.map { " " + $0.suffix(2) + "." + $0.dropFirst(5).prefix(2) } ?? ""))
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
     }
 }
 
