@@ -154,12 +154,12 @@ final class Store: ObservableObject {
         let m = (try? FileManager.default.attributesOfItem(atPath: notePath))?[.modificationDate] as? Date
         let today = day() // "today"/"tomorrow" in queries must roll over at midnight
         guard force || m != mtime || today != lastDay else { return }
-        guard let text = try? String(contentsOfFile: notePath, encoding: .utf8) else {
-            error = "Не могу прочитать заметку: \(notePath)"
-            return
-        }
         mtime = m
         lastDay = today
+        guard let text = try? String(contentsOfFile: notePath, encoding: .utf8) else {
+            error = "Не могу прочитать заметку: \(notePath)" // shown once, not on every poll
+            return
+        }
         (tasks, rawSections) = parseNote(text)
     }
 
@@ -188,7 +188,7 @@ final class Store: ObservableObject {
     var vaultRoot: URL {
         let dir = URL(fileURLWithPath: notePath).deletingLastPathComponent()
         var u = dir
-        while u.path != "/" {
+        while u.path != "/" && u.path != NSHomeDirectory() {
             if FileManager.default.fileExists(atPath: u.appendingPathComponent(".obsidian").path) { return u }
             u.deleteLastPathComponent()
         }
@@ -234,8 +234,15 @@ final class Store: ObservableObject {
                 continue
             } else {
                 let url = g(4) ?? ""
-                link = AttributedString("🌐 " + (g(3) ?? url))
-                link.link = URL(string: url) ?? url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed).flatMap(URL.init(string:))
+                let target = URL(string: url) ?? url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed).flatMap(URL.init(string:))
+                // Only web links are clickable. Note text is partly machine-collected, and file:, smb: or
+                // app-specific schemes can launch things on click.
+                if let target, ["http", "https"].contains(target.scheme?.lowercased() ?? "") {
+                    link = AttributedString("🌐 " + (g(3) ?? url))
+                    link.link = target
+                } else {
+                    link = AttributedString(g(3) ?? url)
+                }
             }
             out += link
             pos = r.upperBound
@@ -453,6 +460,11 @@ struct ContentView: View {
                         catch { store.error = "Автозапуск: \(error.localizedDescription)" }
                     }))
                 Divider()
+                // The app itself has no network code; updates are a link opened in the browser.
+                if let s = Bundle.main.object(forInfoDictionaryKey: "TRBReleasesURL") as? String, let u = URL(string: s) {
+                    Button("Обновления: страница релизов ↗") { NSWorkspace.shared.open(u) }
+                }
+                Text("Версия \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
                 Button("Выйти") { NSApp.terminate(nil) }
             } label: {
                 Image(systemName: "gearshape").font(.system(size: 16))

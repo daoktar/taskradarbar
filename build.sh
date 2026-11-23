@@ -23,7 +23,8 @@ for sz in 16 32 128 256 512; do
   sips -z $((sz*2)) $((sz*2)) build/icon_1024.png --out "$ICONSET/icon_${sz}x${sz}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-codesign --force --sign - "$APP"
+# hardened runtime: no code injection via DYLD_*, only system-signed libraries can load
+codesign --force --options runtime --sign - "$APP"
 echo "built $APP"
 
 # install: replace the copy in /Applications and restart it

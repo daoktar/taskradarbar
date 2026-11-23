@@ -104,10 +104,15 @@ func insertMeta(_ body: String, _ tok: String) -> String {
 
 /// Trailing run of tags / priority / dates / block id. A comment must go before it:
 /// the Tasks plugin only reads metadata from the end of the line.
-let trailingMetaRe = "(?:\\s+(?:#[^\\s#]+|" + prioRe + "|" + metaDateRe + "|\\^[A-Za-z0-9-]+))*\\s*$"
+let trailingMetaRe = "(?:\\s+(?:#[^\\s#]+|" + prioRe + "|" + metaDateRe + "|[🆔⛔]\\uFE0F? *[\\w,-]+|\\^[A-Za-z0-9-]+))*\\s*$"
+
+/// User-typed text goes into a single markdown line: no \n, \r, U+2028 and friends.
+func oneLine(_ s: String) -> String {
+    s.components(separatedBy: .newlines).joined(separator: " ").trimmed
+}
 
 func insertComment(_ body: String, _ comment: String) -> String {
-    let text = comment.replacingOccurrences(of: "\n", with: " ").trimmed
+    let text = oneLine(comment)
     guard !text.isEmpty else { return body }
     let r = body.range(of: trailingMetaRe, options: .regularExpression) ?? body.endIndex..<body.endIndex
     return body[..<r.lowerBound] + " 💬 " + text + body[r]
@@ -143,7 +148,7 @@ func edit(_ e: Edit, _ t: TaskItem, today: String = day(), comment: String? = ni
             body = insertMeta(body, tag)
         }
     case .text(let s):
-        body = s.replacingOccurrences(of: "\n", with: " ").trimmed
+        body = oneLine(s)
     }
     return t.prefix + String(status) + "] " + body
 }
@@ -159,7 +164,17 @@ func splitLines(_ text: String) -> ([String], String) {
 
 /// Re-reads the file, finds the task by exact line text (nearest to its old position),
 /// replaces only that line, writes atomically and verifies.
-func patchFile(_ path: String, _ t: TaskItem, _ e: Edit, comment: String? = nil) throws {
+func patchFile(_ notePath: String, _ t: TaskItem, _ e: Edit, comment: String? = nil) throws {
+    switch e {
+    case .done, .cancel:
+        // The Tasks plugin creates the next occurrence when a recurring task is closed; a plain line edit would lose it.
+        if t.body.contains("🔁") { throw Fail(msg: "Повторяющуюся задачу закрой в Obsidian: иначе следующее повторение не создастся.") }
+    case .text(let s):
+        if oneLine(s).isEmpty { throw Fail(msg: "Пустой текст задачи не сохраняю.") }
+    default: break
+    }
+    // An atomic write replaces the file at the path; if the note is a symlink, write to its target, not over the link.
+    let path = URL(fileURLWithPath: notePath).resolvingSymlinksInPath().path
     let text = try String(contentsOfFile: path, encoding: .utf8)
     var (lines, nl) = splitLines(text)
     guard let i = lines.indices.filter({ lines[$0] == t.raw }).min(by: { abs($0 - t.line) < abs($1 - t.line) }) else {
@@ -443,6 +458,14 @@ func selfTest() {
     eq(ms.map(\.name).joined(separator: ","), "Встречи › 10:00 - A,Встречи › 11:00 - B,Все открытые")
     eq(merged.map(\.name).joined(separator: ","), "Встречи,Все открытые")
     precondition(merged[0].children.count == 2 && merged[0].select(mt).count == 3)
+    eq(edit(.text("a\r\nb\u{2028}c"), a), "- [ ] a  b c")
+    let rec = NSTemporaryDirectory() + "taskradarbar-selftest-rec.md"
+    try! "- [ ] weekly 🔁 every week 📅 2026-11-23\n".write(toFile: rec, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(atPath: rec) }
+    let recTask = TaskItem.parse("- [ ] weekly 🔁 every week 📅 2026-11-23", line: 0)!
+    do { try patchFile(rec, recTask, .done); preconditionFailure("recurring task must not be closed here") } catch {}
+    do { try patchFile(rec, recTask, .text("  ")); preconditionFailure("empty text must be rejected") } catch {}
+    try! patchFile(rec, recTask, .due("2026-11-24"))
     print("synthetic checks: ok")
 
     // Real note: work on a temp copy, the original is never written.
@@ -450,6 +473,7 @@ func selfTest() {
     let tmp = NSTemporaryDirectory() + "taskradarbar-selftest.md"
     try? FileManager.default.removeItem(atPath: tmp)
     try! FileManager.default.copyItem(atPath: path, toPath: tmp)
+    defer { try? FileManager.default.removeItem(atPath: tmp) } // don't leave a copy of the note in the temp dir
     let before = try! String(contentsOfFile: tmp, encoding: .utf8)
     let (rt, rs) = parseNote(before)
     for s in rs { print(String(format: "%4d", s.select(rt).count), s.name, s.error.map { "  ⚠️ " + $0 } ?? "") }
