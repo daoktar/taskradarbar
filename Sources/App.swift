@@ -83,7 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         store.refreshReminders()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        let window = popover.contentViewController?.view.window
+        window?.makeKey()
+        window?.makeFirstResponder(nil) // otherwise the section menu opens with a focus ring around it
     }
 
     func popoverDidClose(_ notification: Notification) { closedAt = Date() }
