@@ -456,7 +456,10 @@ struct TaskRow: View {
                     Text("Enter — сохранить, Esc — отмена. Это вся строка: теги, приоритет и даты тоже здесь.")
                         .font(.caption2).foregroundStyle(.secondary)
                 } else {
-                    Text(store.rich(task)).fixedSize(horizontal: false, vertical: true)
+                    Text(store.rich(task))
+                        .lineLimit(3) // full text: hover tooltip or the pencil
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(task.title)
                 }
 
                 HStack(spacing: 0) {
@@ -490,7 +493,7 @@ struct TaskRow: View {
                         .help("Напоминание")
                     }
                     ForEach(store.sources(task), id: \.1) { name, url in
-                        Button { NSWorkspace.shared.open(url) } label: { icon("doc.text").foregroundStyle(Color.accentColor) }
+                        Button { NSWorkspace.shared.open(url) } label: { icon("doc.text") }
                             .help("Открыть заметку-источник: " + name)
                     }
                     if store.showTags {
