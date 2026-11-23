@@ -54,7 +54,20 @@ The screenshots above are rendered by the app itself from made-up tasks, no scre
 - Recurrence rules: `every [N] day|week|month|year`, `every weekday`, optional `when done`. Other rules must be completed in Obsidian.
 - The "task type" menu uses the tags `#mod/radar`, `#mod/radar/ask`, `#mod/radar/wait`; it only appears on tasks that have one of them.
 
-See [BACKLOG.md](BACKLOG.md) (in Russian) for known simplifications and ideas.
+## Backlog
+
+Planned or considered, not done yet:
+
+- global hotkey to open the window
+- creating new tasks from the app
+- tasks from other files of the vault, not only one note
+- an Obsidian plugin version
+- notifications for all tasks of a chosen filter
+- opening the note as a kanban board
+- App Sandbox without the network entitlement
+- Developer ID signing and notarization of the release builds
+
+The full list, with known simplifications in the code and the open items of the security audit, is in [BACKLOG.md](BACKLOG.md).
 
 ## License
 

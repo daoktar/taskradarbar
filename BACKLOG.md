@@ -1,31 +1,31 @@
-# Бэклог taskradarbar
+# TaskRadarBar backlog
 
-## Не вошло в первую версию
+## Not in the first version
 
-- [ ] Глобальный хоткей для открытия окна.
-- [ ] Создание новых задач из приложения.
-- [ ] Задачи из других файлов вольта (сейчас читается и правится одна выбранная заметка, хотя запросы без фильтра по тегу в Obsidian тянут задачи со всего вольта).
+- [ ] Global hotkey to open the window.
+- [ ] Creating new tasks from the app.
+- [ ] Tasks from other files of the vault. The app reads and edits one chosen note, although in Obsidian a query without a tag filter pulls tasks from the whole vault.
 
-## Идеи
+## Ideas
 
-- [ ] Сделать в виде плагина к Obsidian.
-- [ ] Тонкая настройка уведомлений по задачам, выбранным фильтром (например, напоминать обо всём из раздела «Сегодня» в заданное время).
-- [ ] Переход из приложения на «Радар задач» в виде канбан-доски (в заметке Радара есть ссылка на `[[Радар - доска]]`: те же задачи колонками по срокам).
+- [ ] An Obsidian plugin version.
+- [ ] Fine-grained notifications for the tasks of a chosen filter, for example a reminder about everything in "Today" at a set time.
+- [ ] Open the note as a kanban board from the app: the same tasks as columns by due date, when the note links to such a board.
 
-## Известные упрощения в коде (помечены `ponytail:`)
+## Known simplifications in the code (marked `ponytail:`)
 
-- [ ] Типы статусов зашиты (`x` закрыта, `-` отменена), не читаются из настроек плагина Tasks.
-- [ ] Поддержаны только фильтры Tasks, которые встречаются в «Радаре задач»; на незнакомой строке раздел показывает ошибку.
-- [ ] Подтеги `#mod/radar`, `/ask`, `/wait` зашиты, не настраиваются.
-- [ ] Изменения файла отслеживаются опросом раз в 3 секунды.
-- [ ] Напоминания хранит macOS по тексту задачи; при правке текста напоминание снимается.
-- [ ] Повторение: приложение понимает только `every [N] day|week|month|year`, `every weekday` и `when done`; задачи с другими правилами (`every month on the 15th`) закрываются в Obsidian.
-- [ ] Черновик комментария для агента хранится в настройках приложения по тексту задачи; при правке текста черновик теряется.
+- [ ] Status types are hardcoded (`x` done, `-` cancelled), not read from the Tasks plugin settings.
+- [ ] Only the Tasks query filters listed in `atom` (`Sources/Core.swift`) are supported; a section with an unknown line shows an error.
+- [ ] The task type tags `#mod/radar`, `/ask`, `/wait` are hardcoded, not configurable.
+- [ ] File changes are detected by polling every 3 seconds.
+- [ ] Reminders are kept by macOS and keyed by the task text; editing the text drops the reminder.
+- [ ] Recurrence: the app understands only `every [N] day|week|month|year`, `every weekday` and `when done`; tasks with other rules (`every month on the 15th`) have to be completed in Obsidian.
+- [ ] The comment draft is stored in the app settings and keyed by the task text; editing the text loses the draft.
 
-## Безопасность (из аудита 23.11.2026)
+## Security (from the audit of 2026-11-23)
 
-- [ ] App Sandbox без права на сеть: запрет интернета на уровне системы, а не только отсутствием сетевого кода. Потребует хранить доступ к заметке через security-scoped bookmark и проверить атомарную запись и поиск папки `.obsidian` в песочнице.
-- [ ] Подпись Developer ID и нотаризация, если приложение будет раздаваться через релизы: сейчас подпись ad-hoc, на чужом Mac Gatekeeper его заблокирует.
-- [ ] Текст ссылки в задаче может не совпадать с адресом (`[google.com](https://другой-сайт)`); адрес перед переходом не показывается.
-- [ ] Черновики комментариев и путь к заметке лежат открытым текстом в настройках приложения (`defaults read com.ktar.taskradarbar`), старые черновики не чистятся.
-- [ ] Приоритет определяется по эмодзи в любом месте строки, а не только в хвосте с метаданными.
+- [ ] App Sandbox without the network entitlement: the system would forbid network access, instead of the app merely having no network code. Needs a security-scoped bookmark for the note, and the atomic write and the `.obsidian` folder lookup have to be checked inside the sandbox.
+- [ ] Developer ID signing and notarization for the release builds: the signature is ad-hoc now, so Gatekeeper blocks the app on another Mac.
+- [ ] The link text in a task can differ from its address (`[google.com](https://another-site)`); the address is not shown before opening.
+- [ ] Comment drafts and the note path are stored as plain text in the app settings (`defaults read com.ktar.taskradarbar`); old drafts are never cleaned up.
+- [ ] Priority is detected by its emoji anywhere in the line, not only in the trailing metadata.
