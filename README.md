@@ -9,7 +9,8 @@ A macOS menu bar app that shows the tasks of one [Obsidian](https://obsidian.md)
 
 - **Sections come from the note.** Each ```` ```tasks ```` query block in the note becomes a filter in the app. Blocks under one heading can be merged into one filter with collapsible groups.
 - **Actions:** complete, cancel, move to tomorrow, pick a due date, priority, recurrence, edit text, native macOS reminders, a comment that is written into the task when it is closed.
-- **Search**, three sort modes, RU / EN interface.
+- **Search**, three sort modes, light and dark mode.
+- **Interface languages:** English, German, French, Russian.
 - **One line per action.** The app re-reads the note, finds the task by its exact text, replaces that single line, writes atomically and verifies. If the line changed in the meantime, nothing is written.
 
 ## Privacy and security
@@ -46,6 +47,18 @@ The screenshots above are rendered by the app itself from made-up tasks, no scre
 
 ```bash
 .build/release/taskradarbar --screenshots docs
+```
+
+## Translations
+
+Interface texts are in `Resources/<language>.lproj/Localizable.strings`, the standard Apple strings format. The key is the English text used in the code (`L("Choose note…")`), the value is the translation; a missing key falls back to English.
+
+To add a language, copy `Resources/en.lproj` to `Resources/<code>.lproj` (for example `es.lproj`), translate the right-hand sides and rebuild. No code change is needed: the app lists every language it finds in Settings → Language. Keep the `%@` placeholders and the leading or trailing spaces. `./build.sh` fails if a language file misses a key or a placeholder, or if the code uses a text that is not in `en.lproj`.
+
+To check that a translation fits the window, render the screenshots in that language:
+
+```bash
+.build/release/taskradarbar --screenshots /tmp/shots es
 ```
 
 ## Limits

@@ -4,7 +4,7 @@ import AppKit
 /// `taskradarbar --screenshots docs`: renders the README pictures from made-up tasks.
 /// Nothing is captured from the screen, no real note is read, the user's settings are not touched:
 /// the window content is drawn offscreen and framed with a drawn menu bar and popover.
-func writeDemoScreenshot(_ path: String, expanded: String?) {
+func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en") {
     let d = { (n: Int) in day(addDays(n)) }
     let note = """
     ## Today
@@ -43,17 +43,19 @@ func writeDemoScreenshot(_ path: String, expanded: String?) {
     let defaults = UserDefaults(suiteName: suite)!
     defaults.removePersistentDomain(forName: suite)
     defer { defaults.removePersistentDomain(forName: suite) }
-    defaults.set("en", forKey: "lang")
+    defaults.set(lang, forKey: "lang")
     defaults.set(file, forKey: "notePath")
     defaults.set("Today - meetings", forKey: "section")
     if expanded != nil { defaults.set(["Book a room for the workshop [[Roadmap]]": "Ask facilities for the big room"], forKey: "comments") }
 
-    NSApplication.shared.appearance = NSAppearance(named: .aqua)
+    // "dark" as an extra argument renders the dark appearance (the drawn menu bar stays light: layout check only)
+    let dark = CommandLine.arguments.contains("dark")
+    NSApplication.shared.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let store = Store(defaults: defaults)
     store.demoExpanded = expanded
     let host = NSHostingView(rootView: ContentView().environmentObject(store)
         // a real popover is a light translucent material, noticeably lighter than a window background
-        .background(Color(white: 0.965)))
+        .background(Color(white: dark ? 0.17 : 0.965)))
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
     // let SwiftUI measure the list and settle on its height

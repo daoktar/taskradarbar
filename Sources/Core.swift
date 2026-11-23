@@ -31,11 +31,46 @@ func sub(_ s: String, _ pattern: String, _ with: String = "") -> String {
 }
 
 // MARK: - UI language
+// Texts live in Resources/<lang>.lproj/Localizable.strings (the standard Apple format). The key is the English
+// source text, so a missing translation falls back to English and the code stays readable.
 
-/// "ru" or "en"; set by the Store from the user's setting.
-var appLang = "ru"
-/// Both texts sit next to each other at the call site, no string tables.
-func L(_ ru: String, _ en: String) -> String { appLang == "en" ? en : ru }
+/// Language code ("en", "ru", ...); set by the Store from the user's setting.
+var appLang = "en" { didSet { strings = loadStrings(appLang) } }
+private var strings: [String: String] = [:]
+
+/// The app bundle when installed; the project's Resources folder when run as a bare binary (self-check, screenshots).
+private var stringsDirs: [String] {
+    [Bundle.main.resourcePath, FileManager.default.currentDirectoryPath + "/Resources"].compactMap { $0 }
+}
+
+func loadStrings(_ lang: String) -> [String: String] {
+    for dir in stringsDirs {
+        if let d = NSDictionary(contentsOfFile: "\(dir)/\(lang).lproj/Localizable.strings") as? [String: String] { return d }
+    }
+    return [:]
+}
+
+/// Every language that has a strings file; adding a language needs no code change.
+func availableLanguages() -> [String] {
+    var codes: Set<String> = ["en"]
+    for dir in stringsDirs {
+        for item in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [] where item.hasSuffix(".lproj") {
+            let code = String(item.dropLast(6))
+            if FileManager.default.fileExists(atPath: "\(dir)/\(item)/Localizable.strings") { codes.insert(code) }
+        }
+    }
+    return codes.sorted()
+}
+
+/// "Deutsch", "Français", "Русский": each language named in itself.
+func languageName(_ code: String) -> String {
+    (Locale(identifier: code).localizedString(forLanguageCode: code) ?? code).capitalized(with: Locale(identifier: code))
+}
+
+func L(_ key: String, _ args: CVarArg...) -> String {
+    let format = strings[key] ?? key
+    return args.isEmpty ? format : String(format: format, arguments: args)
+}
 
 extension String {
     var trimmed: String { trimmingCharacters(in: .whitespaces) }
@@ -223,15 +258,14 @@ func patchFile(_ notePath: String, _ t: TaskItem, _ e: Edit, comment: String? = 
     case .done:
         if let rule = t.recurrence {
             guard let n = nextOccurrence(t) else {
-                throw Fail(msg: L("Правило повторения «\(rule)» приложение не понимает. Закрой эту задачу в Obsidian, иначе следующее повторение не создастся.",
-                                  "The app doesn't understand the recurrence rule “\(rule)”. Complete this task in Obsidian, otherwise the next occurrence won't be created."))
+                throw Fail(msg: L("The app doesn't understand the recurrence rule “%@”. Complete this task in Obsidian, otherwise the next occurrence won't be created.", rule))
             }
             next = n
         } else if t.body.contains("🔁") {
-            throw Fail(msg: L("Не разобрал правило повторения. Закрой эту задачу в Obsidian.", "Couldn't parse the recurrence rule. Complete this task in Obsidian."))
+            throw Fail(msg: L("Couldn't parse the recurrence rule. Complete this task in Obsidian."))
         }
     case .text(let s):
-        if oneLine(s).isEmpty { throw Fail(msg: L("Пустой текст задачи не сохраняю.", "Empty task text is not saved.")) }
+        if oneLine(s).isEmpty { throw Fail(msg: L("Empty task text is not saved.")) }
     default: break
     }
     // An atomic write replaces the file at the path; if the note is a symlink, write to its target, not over the link.
@@ -239,14 +273,14 @@ func patchFile(_ notePath: String, _ t: TaskItem, _ e: Edit, comment: String? = 
     let text = try String(contentsOfFile: path, encoding: .utf8)
     var (lines, nl) = splitLines(text)
     guard let i = lines.indices.filter({ lines[$0] == t.raw }).min(by: { abs($0 - t.line) < abs($1 - t.line) }) else {
-        throw Fail(msg: L("Строка задачи изменилась в заметке. Список обновлён, повтори действие.", "The task line changed in the note. The list is refreshed, try again."))
+        throw Fail(msg: L("The task line changed in the note. The list is refreshed, try again."))
     }
     lines[i] = edit(e, t, comment: comment)
     if let next { lines.insert(next, at: i) } // above the closed one, as Tasks does by default
     let out = lines.joined(separator: nl)
     try out.write(toFile: path, atomically: true, encoding: .utf8)
     guard try String(contentsOfFile: path, encoding: .utf8) == out else {
-        throw Fail(msg: L("Запись не подтвердилась, проверь заметку.", "The write could not be verified, check the note."))
+        throw Fail(msg: L("The write could not be verified, check the note."))
     }
 }
 
@@ -279,9 +313,9 @@ enum Sort: String, CaseIterable {
     case due, priority, file
     var title: String {
         switch self {
-        case .due: return L("По сроку: старые сверху", "By due date: oldest first")   // no due date goes last, in file order
-        case .priority: return L("По приоритету, затем по сроку", "By priority, then due date")
-        case .file: return L("Как в заметке", "As in the note")
+        case .due: return L("By due date: oldest first")   // no due date goes last, in file order
+        case .priority: return L("By priority, then due date")
+        case .file: return L("As in the note")
         }
     }
 }
@@ -378,14 +412,14 @@ func makeSection(_ name: String, _ query: [String], _ now: Date) -> Section {
         let l = q.lowercased().trimmed
         if l.isEmpty || ignored.contains(where: l.hasPrefix) { continue }
         if let g = groups("^limit (?:to )?(\\d+)", l) { limit = Int(g[1]); continue }
-        if let p = parseExpr(q, now) { preds.append(p) } else if error == nil { error = L("Не понял строку запроса: «\(q.trimmed)»", "Can't parse the query line: “\(q.trimmed)”") }
+        if let p = parseExpr(q, now) { preds.append(p) } else if error == nil { error = L("Can't parse the query line: “%@”", q.trimmed) }
     }
     return Section(name: name, preds: preds, limit: limit, error: error)
 }
 
 func parseNote(_ text: String, now: Date = Date()) -> ([TaskItem], [Section]) {
     var tasks: [TaskItem] = [], sections: [Section] = []
-    var heading = L("Задачи", "Tasks"), sub2: String?, query: [String]?, inFence = false
+    var heading = L("Tasks"), sub2: String?, query: [String]?, inFence = false
     for (i, raw) in splitLines(text).0.enumerated() {
         let line = raw.trimmed
         if query != nil {
@@ -411,7 +445,7 @@ func parseNote(_ text: String, now: Date = Date()) -> ([TaskItem], [Section]) {
         if let g = groups("^\\*\\*(.+)\\*\\*$", line) { sub2 = g[1]; continue } // e.g. per-meeting blocks
         if let t = TaskItem.parse(raw, line: i) { tasks.append(t) }
     }
-    sections.append(Section(name: L("Все открытые", "All open"), preds: [{ $0.isOpen }], limit: nil, error: nil))
+    sections.append(Section(name: L("All open"), preds: [{ $0.isOpen }], limit: nil, error: nil))
     return (tasks, sections)
 }
 
@@ -440,7 +474,20 @@ func mergeSections(_ sections: [Section]) -> [Section] {
 // MARK: - Self-check: `taskradarbar --selftest [path-to-note]`
 
 func selfTest() {
-    appLang = "ru" // expected strings below are Russian
+    appLang = "en" // expected strings below are the English keys
+
+    // every language file has exactly the keys of en, with the same placeholders
+    let en = loadStrings("en")
+    precondition(!en.isEmpty, "Resources/en.lproj/Localizable.strings not found; run from the project root")
+    for lang in availableLanguages() where lang != "en" {
+        let d = loadStrings(lang)
+        for k in en.keys {
+            guard let v = d[k] else { preconditionFailure("\(lang): missing \"\(k)\"") }
+            precondition(v.components(separatedBy: "%@").count == k.components(separatedBy: "%@").count, "\(lang): placeholders differ in \"\(k)\"")
+        }
+        precondition(d.count == en.count, "\(lang): \(d.count - en.count) extra keys")
+    }
+    print("languages: \(availableLanguages().joined(separator: ", ")), \(en.count) strings each")
     func eq(_ a: String, _ b: String) { precondition(a == b, "\n got: \(a)\nwant: \(b)") }
     let now = dayFmt.date(from: "2026-11-23")! // Monday
     let note = """
@@ -477,7 +524,7 @@ func selfTest() {
     """
     let (tasks, sections) = parseNote(note, now: now)
     precondition(tasks.count == 7, "tasks: \(tasks.count)")
-    eq(sections.map(\.name).joined(separator: ","), "Сегодня,Неделя,Сломано,Все открытые")
+    eq(sections.map(\.name).joined(separator: ","), "Сегодня,Неделя,Сломано,All open")
     eq(sections[0].select(tasks).map(\.title).joined(separator: ","), "e,a [[note|n]]")
     eq(sections[1].select(tasks).map(\.title).joined(separator: ","), "d")
     precondition(sections[2].error != nil && sections[0].error == nil)
@@ -518,8 +565,8 @@ func selfTest() {
     - [ ] none
     """, now: now)
     let merged = mergeSections(ms)
-    eq(ms.map(\.name).joined(separator: ","), "Встречи › 10:00 - A,Встречи › 11:00 - B,Все открытые")
-    eq(merged.map(\.name).joined(separator: ","), "Встречи,Все открытые")
+    eq(ms.map(\.name).joined(separator: ","), "Встречи › 10:00 - A,Встречи › 11:00 - B,All open")
+    eq(merged.map(\.name).joined(separator: ","), "Встречи,All open")
     precondition(merged[0].children.count == 2 && merged[0].select(mt).count == 3)
     eq(edit(.text("a\r\nb\u{2028}c"), a), "- [ ] a  b c")
     let rec = NSTemporaryDirectory() + "taskradarbar-selftest-rec.md"

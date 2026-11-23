@@ -4,6 +4,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# every L("key") used in the code must exist in the English strings file
+grep -ohE 'L\("([^"\\]|\\.)*"' Sources/*.swift | sed -E 's/^L\(//' | sort -u | while IFS= read -r key; do
+  grep -qF -- "$key = " Resources/en.lproj/Localizable.strings || { echo "missing in en.lproj: $key"; exit 1; }
+done
+
 # self-check from the debug build: release strips precondition messages
 swift build
 .build/debug/taskradarbar --selftest "$@"
@@ -13,6 +18,8 @@ APP=build/TaskRadarBar.app
 mkdir -p "$APP/Contents/MacOS"
 cp -f .build/release/taskradarbar "$APP/Contents/MacOS/TaskRadarBar"
 cp -f Info.plist "$APP/Contents/Info.plist"
+mkdir -p "$APP/Contents/Resources"
+cp -R Resources/*.lproj "$APP/Contents/Resources/"
 
 # app icon: drawn by the binary itself (Sources/Logo.swift) -> iconset -> icns
 ICONSET=build/AppIcon.iconset
