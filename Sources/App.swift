@@ -130,6 +130,15 @@ final class Store: ObservableObject {
     var section: Section? { sections.first { $0.name == sectionName } ?? sections.first }
     var visible: [TaskItem] { section?.select(tasks, sort: sort) ?? [] }
 
+    // Search narrows the list on screen only; counters keep showing the whole section.
+    @Published var searching = false
+    @Published var query = ""
+    func matches(_ t: TaskItem) -> Bool {
+        let q = query.trimmed
+        return !searching || q.isEmpty || t.body.localizedCaseInsensitiveContains(q)
+    }
+    var shown: [TaskItem] { visible.filter(matches) }
+
     func reload(force: Bool = false) {
         guard !notePath.isEmpty else { tasks = []; rawSections = []; return }
         let m = (try? FileManager.default.attributesOfItem(atPath: notePath))?[.modificationDate] as? Date
@@ -281,10 +290,28 @@ final class Store: ObservableObject {
 
 struct ContentView: View {
     @EnvironmentObject var store: Store
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if store.searching {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Поиск по задачам раздела", text: $store.query)
+                        .textFieldStyle(.plain)
+                        .focused($searchFocused)
+                        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { searchFocused = true } }
+                        .onExitCommand { store.searching = false; store.query = "" }
+                    if !store.query.isEmpty {
+                        Text("\(store.shown.count)").font(.caption).foregroundStyle(.secondary)
+                        Button { store.query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).help("Очистить")
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+            }
             Divider()
 
             if let e = store.error {
@@ -303,10 +330,12 @@ struct ContentView: View {
                 placeholder(e + "\nПоправь запрос в заметке или выбери другой раздел.") { EmptyView() }
             } else if store.visible.isEmpty {
                 placeholder("В этом разделе пусто") { EmptyView() }
+            } else if store.shown.isEmpty {
+                placeholder("Ничего не найдено") { EmptyView() }
             } else {
                 ScrollView {
                     Group {
-                        if store.visible.count <= 40 {
+                        if store.shown.count <= 40 {
                             VStack(alignment: .leading, spacing: 0) { taskRows }
                         } else {
                             LazyVStack(alignment: .leading, spacing: 0) { taskRows }
@@ -328,7 +357,7 @@ struct ContentView: View {
         if let sec = store.section, !sec.children.isEmpty {
             // merged section: one group per original block, e.g. per meeting
             ForEach(sec.children) { c in
-                let items = c.select(store.tasks, sort: store.sort)
+                let items = c.select(store.tasks, sort: store.sort).filter(store.matches)
                 if !items.isEmpty {
                     Text(c.sub ?? c.name)
                         .font(.callout).fontWeight(.semibold).foregroundStyle(.secondary)
@@ -337,7 +366,7 @@ struct ContentView: View {
                 }
             }
         } else {
-            ForEach(store.visible) { t in TaskRow(task: t); Divider() }
+            ForEach(store.shown) { t in TaskRow(task: t); Divider() }
         }
     }
 
@@ -359,6 +388,16 @@ struct ContentView: View {
                     .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                store.searching.toggle()
+                if !store.searching { store.query = "" }
+            } label: {
+                Image(systemName: "magnifyingglass").font(.system(size: 16))
+                    .foregroundStyle(store.searching ? Color.accentColor : Color.primary)
+            }
+            .buttonStyle(.plain)
+            .help("Поиск")
 
             Menu {
                 Picker("", selection: $store.sort) {
