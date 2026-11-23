@@ -12,6 +12,9 @@ enum Main {
         if let i = CommandLine.arguments.firstIndex(of: "--icon"), CommandLine.arguments.count > i + 1 {
             writeIconPNG(CommandLine.arguments[i + 1]); return
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--screenshot"), CommandLine.arguments.count > i + 1 {
+            writeDemoScreenshot(CommandLine.arguments[i + 1]); return
+        }
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
@@ -96,63 +99,67 @@ final class Store: ObservableObject {
     @Published var tasks: [TaskItem] = []
     @Published var rawSections: [Section] = []
     @Published var mergeBlocks: Bool {
-        didSet { UserDefaults.standard.set(mergeBlocks, forKey: "mergeBlocks") }
+        didSet { defaults.set(mergeBlocks, forKey: "mergeBlocks") }
     }
     var sections: [Section] { mergeBlocks ? mergeSections(rawSections) : rawSections }
     @Published var error: String?
     @Published var reminders: Set<String> = []
     @Published var notePath: String {
-        didSet { UserDefaults.standard.set(notePath, forKey: "notePath"); reload(force: true) }
+        didSet { defaults.set(notePath, forKey: "notePath"); reload(force: true) }
     }
     @Published var sectionName: String {
-        didSet { UserDefaults.standard.set(sectionName, forKey: "section") }
+        didSet { defaults.set(sectionName, forKey: "section") }
     }
     @Published var showTags: Bool {
-        didSet { UserDefaults.standard.set(showTags, forKey: "showTags") }
+        didSet { defaults.set(showTags, forKey: "showTags") }
     }
     @Published var sort: Sort {
-        didSet { UserDefaults.standard.set(sort.rawValue, forKey: "sort") }
+        didSet { defaults.set(sort.rawValue, forKey: "sort") }
     }
     /// L("Комментарий для агента", "Comment for the agent"): drafts live here until the task is closed or cancelled, then go into its line.
     // ponytail: keyed by task title, so editing the task text orphans its draft
     @Published var comments: [String: String] {
-        didSet { UserDefaults.standard.set(comments, forKey: "comments") }
+        didSet { defaults.set(comments, forKey: "comments") }
     }
     @Published var agentComment: Bool {
-        didSet { UserDefaults.standard.set(agentComment, forKey: "agentComment") }
+        didSet { defaults.set(agentComment, forKey: "agentComment") }
     }
     /// Collapsed groups of a merged section, by block name.
     @Published var collapsed: Set<String> {
-        didSet { UserDefaults.standard.set(Array(collapsed), forKey: "collapsed") }
+        didSet { defaults.set(Array(collapsed), forKey: "collapsed") }
     }
     @Published var lang: String {
-        didSet { UserDefaults.standard.set(lang, forKey: "lang"); appLang = lang; reload(force: true) } // section names are localized at parse time
+        didSet { defaults.set(lang, forKey: "lang"); appLang = lang; reload(force: true) } // section names are localized at parse time
     }
     @Published var recurring: Bool {
-        didSet { UserDefaults.standard.set(recurring, forKey: "recurring") }
+        didSet { defaults.set(recurring, forKey: "recurring") }
     }
     @Published var trayIcon: String {
-        didSet { UserDefaults.standard.set(trayIcon, forKey: "trayIcon") }
+        didSet { defaults.set(trayIcon, forKey: "trayIcon") }
     }
     @Published var listHeight: CGFloat = 200
     private var mtime: Date?
     private var lastDay = ""
     private var timer: Timer?
 
-    init() {
-        notePath = UserDefaults.standard.string(forKey: "notePath") ?? ""
-        sectionName = UserDefaults.standard.string(forKey: "section") ?? ""
-        showTags = UserDefaults.standard.object(forKey: "showTags") as? Bool ?? true
-        mergeBlocks = UserDefaults.standard.object(forKey: "mergeBlocks") as? Bool ?? true
-        comments = UserDefaults.standard.dictionary(forKey: "comments") as? [String: String] ?? [:]
-        agentComment = UserDefaults.standard.object(forKey: "agentComment") as? Bool ?? true
-        collapsed = Set(UserDefaults.standard.stringArray(forKey: "collapsed") ?? [])
-        let savedLang = UserDefaults.standard.string(forKey: "lang") ?? (Locale.preferredLanguages.first?.hasPrefix("ru") == true ? "ru" : "en")
+    /// Injected so the README screenshot mode can run on throwaway settings.
+    let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        notePath = defaults.string(forKey: "notePath") ?? ""
+        sectionName = defaults.string(forKey: "section") ?? ""
+        showTags = defaults.object(forKey: "showTags") as? Bool ?? true
+        mergeBlocks = defaults.object(forKey: "mergeBlocks") as? Bool ?? true
+        comments = defaults.dictionary(forKey: "comments") as? [String: String] ?? [:]
+        agentComment = defaults.object(forKey: "agentComment") as? Bool ?? true
+        collapsed = Set(defaults.stringArray(forKey: "collapsed") ?? [])
+        let savedLang = defaults.string(forKey: "lang") ?? (Locale.preferredLanguages.first?.hasPrefix("ru") == true ? "ru" : "en")
         lang = savedLang
         appLang = savedLang
-        recurring = UserDefaults.standard.object(forKey: "recurring") as? Bool ?? true
-        trayIcon = UserDefaults.standard.string(forKey: "trayIcon") ?? "scope"
-        sort = Sort(rawValue: UserDefaults.standard.string(forKey: "sort") ?? "") ?? .due
+        recurring = defaults.object(forKey: "recurring") as? Bool ?? true
+        trayIcon = defaults.string(forKey: "trayIcon") ?? "scope"
+        sort = Sort(rawValue: defaults.string(forKey: "sort") ?? "") ?? .due
         reload()
         refreshReminders()
         // ponytail: 3s mtime poll instead of FSEvents; atomic saves replace the inode and break fd watchers

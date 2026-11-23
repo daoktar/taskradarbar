@@ -2,6 +2,8 @@
 
 A macOS menu bar app that shows the tasks of one [Obsidian](https://obsidian.md) note and lets you act on them without opening Obsidian. Tasks are in the [Tasks plugin](https://publish.obsidian.md/tasks/) emoji format; every action edits the note itself.
 
+<img src="docs/screenshot.png" width="480" alt="TaskRadarBar window: tasks grouped by meeting, with priority, due date and action buttons">
+
 - **Sections come from the note.** Each ```` ```tasks ```` query block in the note becomes a filter in the app. Blocks under one heading can be merged into one filter with collapsible groups.
 - **Actions:** complete, cancel, move to tomorrow, pick a due date, priority, recurrence, edit text, native macOS reminders, a comment that is written into the task when it is closed.
 - **Search**, three sort modes, RU / EN interface.
@@ -35,6 +37,12 @@ This runs the self-check, builds `build/TaskRadarBar.app`, copies it to `/Applic
 
 ```bash
 ./build.sh "/path/to/note.md"
+```
+
+The screenshot above is rendered by the app itself from made-up tasks, no screen capture:
+
+```bash
+.build/release/taskradarbar --screenshot docs/screenshot.png
 ```
 
 ## Limits
