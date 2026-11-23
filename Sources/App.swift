@@ -139,6 +139,15 @@ final class Store: ObservableObject {
     @Published var recurring: Bool {
         didSet { defaults.set(recurring, forKey: "recurring") }
     }
+    /// Reminders before meetings, see Meetings.swift: the default for every section (0 = off) and the sections
+    /// that chose their own, minutes by note heading.
+    @Published var meetingDefault: Int {
+        didSet { defaults.set(meetingDefault, forKey: "meetingDefault"); if meetingDefault > 0 { askNotifications() } }
+    }
+    @Published var meetingLead: [String: Int] {
+        didSet { defaults.set(meetingLead, forKey: "meetingLead") }
+    }
+    @Published var notifying = false
     @Published var trayIcon: String {
         didSet { defaults.set(trayIcon, forKey: "trayIcon") }
     }
@@ -174,12 +183,14 @@ final class Store: ObservableObject {
         lang = savedLang
         appLang = savedLang
         recurring = defaults.object(forKey: "recurring") as? Bool ?? true
+        meetingDefault = defaults.integer(forKey: "meetingDefault")
+        meetingLead = defaults.dictionary(forKey: "meetingLead") as? [String: Int] ?? [:]
         trayIcon = defaults.string(forKey: "trayIcon") ?? "scope"
         sort = Sort(rawValue: defaults.string(forKey: "sort") ?? "") ?? .due
         reload()
         refreshReminders()
         // ponytail: 3s mtime poll instead of FSEvents; atomic saves replace the inode and break fd watchers
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.reload() }
+        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.reload(); self?.checkMeetings() }
     }
 
     var section: Section? { sections.first { $0.name == sectionName } ?? sections.first }
@@ -317,8 +328,11 @@ final class Store: ObservableObject {
     }
 
     func remind(_ t: TaskItem, at date: Date) {
+        post(id: t.title, title: L("Task radar"), body: String(rich(t).characters), after: date.timeIntervalSinceNow)
+    }
+
+    func post(id: String, title: String, body: String, after: TimeInterval) {
         guard hasBundle else { error = L("Reminders only work from the built .app"); return }
-        let id = t.title, text = String(rich(t).characters)
         let c = UNUserNotificationCenter.current()
         c.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else {
@@ -326,12 +340,12 @@ final class Store: ObservableObject {
                 return
             }
             let content = UNMutableNotificationContent()
-            content.title = L("Task radar")
-            content.body = text
+            content.title = title
+            content.body = body
             content.sound = .default
             // interval trigger: fires even if the picked minute has already started
             let req = UNNotificationRequest(identifier: id, content: content,
-                                            trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, date.timeIntervalSinceNow), repeats: false))
+                                            trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, after), repeats: false))
             c.add(req) { err in
                 DispatchQueue.main.async {
                     if let err { self.error = err.localizedDescription }
@@ -380,6 +394,7 @@ struct ContentView: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
             }
+            if store.notifying && !store.meetings.isEmpty { MeetingRow() }
             Divider()
             if store.boardHelp { BoardHelp() }
 
@@ -510,6 +525,15 @@ struct ContentView: View {
             Button { store.openBoard() } label: { Image(systemName: "rectangle.split.3x1").font(.system(size: 16)) }
                 .buttonStyle(.plain)
                 .help(L("Open the board in Obsidian"))
+            if !store.meetings.isEmpty {
+                let on = store.lead(store.meetingKey) > 0
+                Button { store.notifying.toggle() } label: {
+                    Image(systemName: on ? "bell.fill" : "bell").font(.system(size: 16))
+                        .foregroundStyle(on ? Color.orange : Color.primary)
+                }
+                .buttonStyle(.plain)
+                .help(L("Reminders before meetings"))
+            }
 
             Menu {
                 if !store.notePath.isEmpty {
@@ -531,6 +555,9 @@ struct ContentView: View {
                     Text(L("Scope")).tag("scope")
                     Text(L("Logo, monochrome")).tag("mono")
                     Text(L("Logo, colour")).tag("color")
+                }
+                Picker(L("Reminders before meetings"), selection: $store.meetingDefault) {
+                    ForEach(meetingLeads, id: \.1) { label, m in Text(label).tag(m) }
                 }
                 Button(L("Test notification (in 5 seconds)")) { store.testNotification() }
                 Toggle(L("Launch at login"), isOn: Binding(
@@ -849,21 +876,21 @@ struct TaskRow: View {
             Spacer(minLength: 0)
         }
     }
+}
 
-    func chip(_ label: String, active: Bool, _ action: @escaping () -> Void) -> some View {
-        // Own look instead of .bordered: never truncates its label, and the active state stays visible
-        // even when the window is not key.
-        Button(action: action) {
-            Text(label)
-                .font(.callout)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 6) // seven "repeat" chips must fit the 480pt window
-                .padding(.vertical, 4)
-                .foregroundStyle(active ? Color.white : Color.primary)
-                .background(active ? Color.accentColor : Color(nsColor: .controlColor), in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(active ? 0 : 0.15), lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
+func chip(_ label: String, active: Bool, _ action: @escaping () -> Void) -> some View {
+    // Own look instead of .bordered: never truncates its label, and the active state stays visible
+    // even when the window is not key.
+    Button(action: action) {
+        Text(label)
+            .font(.callout)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 6) // seven "repeat" chips must fit the 480pt window
+            .padding(.vertical, 4)
+            .foregroundStyle(active ? Color.white : Color.primary)
+            .background(active ? Color.accentColor : Color(nsColor: .controlColor), in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(active ? 0 : 0.15), lineWidth: 0.5))
     }
+    .buttonStyle(.plain)
 }

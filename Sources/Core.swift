@@ -608,6 +608,7 @@ func selfTest() {
     eq(boardLink("---\ntags: [a]\n---\n# Title\n**Board:** [[Dir/My board|board]] as columns\n## Today\n- [ ] t [[Other]]") ?? "nil", "Dir/My board")
     eq(boardLink("---\nup: \"[[Index]]\"\n---\n![[banner.png]]\nsee [[Board#Columns]]") ?? "nil", "Board")
     precondition(boardLink("# Title\n## Today\n- [ ] t [[Other]]") == nil && boardLink("- [ ] t [[Other]]\n[[Board]]") == nil)
+    meetingSelfTest()
     print("synthetic checks: ok")
 
     // Real note: work on a temp copy, the original is never written.
