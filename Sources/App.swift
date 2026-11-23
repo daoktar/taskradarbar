@@ -114,6 +114,9 @@ final class Store: ObservableObject {
     @Published var agentComment: Bool {
         didSet { UserDefaults.standard.set(agentComment, forKey: "agentComment") }
     }
+    @Published var recurring: Bool {
+        didSet { UserDefaults.standard.set(recurring, forKey: "recurring") }
+    }
     @Published var trayIcon: String {
         didSet { UserDefaults.standard.set(trayIcon, forKey: "trayIcon") }
     }
@@ -129,6 +132,7 @@ final class Store: ObservableObject {
         mergeBlocks = UserDefaults.standard.object(forKey: "mergeBlocks") as? Bool ?? true
         comments = UserDefaults.standard.dictionary(forKey: "comments") as? [String: String] ?? [:]
         agentComment = UserDefaults.standard.object(forKey: "agentComment") as? Bool ?? true
+        recurring = UserDefaults.standard.object(forKey: "recurring") as? Bool ?? true
         trayIcon = UserDefaults.standard.string(forKey: "trayIcon") ?? "scope"
         sort = Sort(rawValue: UserDefaults.standard.string(forKey: "sort") ?? "") ?? .due
         reload()
@@ -447,6 +451,7 @@ struct ContentView: View {
                 Toggle("Объединять блоки под одним заголовком", isOn: $store.mergeBlocks)
                 Toggle("Показывать теги под задачей", isOn: $store.showTags)
                 Toggle("Комментарий для агента", isOn: $store.agentComment)
+                Toggle("Повторение задач", isOn: $store.recurring)
                 Picker("Значок в трее", selection: $store.trayIcon) {
                     Text("Прицел").tag("scope")
                     Text("Логотип, монохромный").tag("mono")
@@ -533,6 +538,8 @@ struct TaskRow: View {
             .help("Закрыть")
 
             VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 4) {
                 if s.editing {
                     TextField("", text: $s.draft, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
@@ -548,6 +555,23 @@ struct TaskRow: View {
                         .lineLimit(3) // full text: hover tooltip or the pencil
                         .fixedSize(horizontal: false, vertical: true)
                         .help(task.title)
+                }
+                    }
+                    Spacer(minLength: 0)
+                    // source note(s): top-right corner, right above the "more" button
+                    ForEach(store.sources(task), id: \.1) { name, url in
+                        Button { NSWorkspace.shared.open(url) } label: { icon("arrow.up.right.square") }
+                            .buttonStyle(.plain)
+                            .help("Открыть заметку-источник: " + name)
+                            .opacity(rest)
+                    }
+                    if store.sources(task).isEmpty {
+                        // no source note in the task: the button opens the note the task lives in
+                        Button { store.openNote() } label: { icon("arrow.up.right.square") }
+                            .buttonStyle(.plain)
+                            .help("Открыть заметку с задачей: " + URL(fileURLWithPath: store.notePath).deletingPathExtension().lastPathComponent)
+                            .opacity(rest)
+                    }
                 }
 
                 HStack(spacing: 0) {
@@ -580,11 +604,6 @@ struct TaskRow: View {
                         } label: { icon("bell.fill").foregroundStyle(.orange) }
                         .help("Напоминание")
                     }
-                    ForEach(store.sources(task), id: \.1) { name, url in
-                        Button { NSWorkspace.shared.open(url) } label: { icon("doc.text") }
-                            .help("Открыть заметку-источник: " + name)
-                            .opacity(rest)
-                    }
                     if store.agentComment {
                         let has = !(store.comments[task.title] ?? "").trimmed.isEmpty
                         Button {
@@ -595,7 +614,6 @@ struct TaskRow: View {
                             icon(has ? "text.bubble.fill" : "text.bubble").foregroundStyle(has ? Color.orange : Color.primary)
                         }
                         .help(has ? (store.comments[task.title] ?? "") : "Комментарий для агента")
-                        .opacity(has ? 1 : rest) // a written comment is status, stays bright
                     }
                     if store.showTags {
                         let tags = Text(task.tags.joined(separator: " ")).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
@@ -606,14 +624,14 @@ struct TaskRow: View {
                                 Button("wait: висит на других") { store.apply(.subtag("/wait"), to: task) }
                             } label: { tags.padding(.leading, 4).frame(height: 26).contentShape(Rectangle()) }
                             .help("Тип задачи")
-                            .opacity(rest * 1.4)
                         } else {
-                            tags.padding(.leading, 4).opacity(rest * 1.4)
+                            tags.padding(.leading, 4)
                         }
                     }
                     Spacer(minLength: 0)
-                    actions.opacity(rest)
+                    actions
                 }
+                .opacity(rest)
                 .buttonStyle(.plain)
                 .menuStyle(.button)
                 .menuIndicator(.hidden)
@@ -643,6 +661,12 @@ struct TaskRow: View {
         HStack(spacing: 0) {
             Button { s.draft = task.body; s.editing = true } label: { icon("pencil") }.help("Редактировать")
             Button { store.apply(.due(day(addDays(1))), to: task) } label: { icon("sunrise") }.help("Перенести на завтра")
+            if store.recurring {
+                Button { s.expanded.toggle() } label: {
+                    icon("repeat").foregroundStyle(task.recurrence != nil ? Color.orange : Color.primary)
+                }
+                .help(task.recurrence.map { "Повтор: " + $0 } ?? "Повторение")
+            }
             Button { togglePicker() } label: { icon("calendar") }.help("Выбрать срок")
             Button { s.expanded.toggle() } label: {
                 icon(s.expanded ? "chevron.up" : "ellipsis")
@@ -651,7 +675,7 @@ struct TaskRow: View {
         .buttonStyle(.plain)
     }
 
-    /// Everything except status (flag, due date, bell, written comment) is dimmed until the row is hovered.
+    /// Every icon under the task text is dimmed until the row is hovered; the close circle and the text are not.
     var rest: Double { s.hover || s.expanded || s.picking ? 1 : 0.55 }
 
     /// The one icon size for the whole row: status icons on the left and actions on the right.
@@ -678,6 +702,16 @@ struct TaskRow: View {
                         .lineLimit(1...3)
                         .focused($commentFocused)
                         .onSubmit { s.expanded = false }
+                }
+            }
+            if store.recurring {
+                line("Повтор") {
+                    ForEach([("нет", ""), ("день", "every day"), ("будни", "every weekday"), ("неделя", "every week"),
+                             ("2 недели", "every 2 weeks"), ("месяц", "every month"), ("год", "every year")], id: \.1) { label, rule in
+                        chip(label, active: (task.recurrence ?? "") == rule) {
+                            store.apply(.recurrence(rule.isEmpty ? nil : rule), to: task)
+                        }
+                    }
                 }
             }
             line("Приоритет") {

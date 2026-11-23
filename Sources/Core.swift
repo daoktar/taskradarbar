@@ -37,6 +37,7 @@ extension String {
 let dateRe = "\\d{4}-\\d{2}-\\d{2}"
 let prioRe = "[🔺⏫🔼🔽⏬]\\uFE0F?"
 let metaDateRe = "[📅⏳🛫➕✅❌]\\uFE0F? *" + dateRe
+let recurRe = "🔁\\uFE0F? *[A-Za-z0-9, ]*[A-Za-z0-9]" // "🔁 every 2 weeks when done"
 let tagRe = "(?<!\\S)#[^\\s#]+"
 let radarTagRe = "(?<!\\S)#mod/radar(/ask|/wait)?(?![\\w/-])"
 
@@ -54,6 +55,7 @@ struct TaskItem: Identifiable, Equatable {
     let scheduled: String?
     let priority: String?
     let tags: [String]
+    let recurrence: String?   // rule text after 🔁, e.g. "every week"
     let hasRadarTag: Bool
     /// Body without tags, dates and priority.
     let title: String
@@ -71,8 +73,9 @@ struct TaskItem: Identifiable, Equatable {
             scheduled: groups("⏳\\uFE0F? *(\(dateRe))", body)?[1],
             priority: groups("([🔺⏫🔼🔽⏬])", body)?[1],
             tags: allMatches(tagRe, body),
+            recurrence: groups("🔁\\uFE0F? *([A-Za-z0-9, ]*[A-Za-z0-9])", body)?[1],
             hasRadarTag: groups(radarTagRe, body) != nil,
-            title: sub(sub(sub(body, "\\s*" + metaDateRe), "\\s*" + prioRe), "\\s*" + tagRe).trimmed)
+            title: sub(sub(sub(sub(body, "\\s*" + recurRe), "\\s*" + metaDateRe), "\\s*" + prioRe), "\\s*" + tagRe).trimmed)
     }
 }
 
@@ -84,6 +87,7 @@ enum Edit {
     case priority(String?)
     case subtag(String)   // "", "/ask", "/wait"
     case text(String)     // whole body after the checkbox
+    case recurrence(String?) // rule in Tasks syntax ("every week"), nil removes it
 }
 
 /// Append at end of line, but keep a trailing block id (^abc) last.
@@ -104,7 +108,7 @@ func insertMeta(_ body: String, _ tok: String) -> String {
 
 /// Trailing run of tags / priority / dates / block id. A comment must go before it:
 /// the Tasks plugin only reads metadata from the end of the line.
-let trailingMetaRe = "(?:\\s+(?:#[^\\s#]+|" + prioRe + "|" + metaDateRe + "|[🆔⛔]\\uFE0F? *[\\w,-]+|\\^[A-Za-z0-9-]+))*\\s*$"
+let trailingMetaRe = "(?:\\s+(?:#[^\\s#]+|" + prioRe + "|" + metaDateRe + "|[🆔⛔]\\uFE0F? *[\\w,-]+|" + recurRe + "|\\^[A-Za-z0-9-]+))*\\s*$"
 
 /// User-typed text goes into a single markdown line: no \n, \r, U+2028 and friends.
 func oneLine(_ s: String) -> String {
@@ -149,8 +153,50 @@ func edit(_ e: Edit, _ t: TaskItem, today: String = day(), comment: String? = ni
         }
     case .text(let s):
         body = oneLine(s)
+    case .recurrence(let rule):
+        body = sub(body, "\\s*" + recurRe)
+        if let rule {
+            body = insertMeta(body, "🔁 " + rule)
+            // the Tasks plugin needs a date to repeat from
+            if groups("[📅⏳🛫]\\uFE0F? *" + dateRe, body) == nil { body = appendToken(body, "📅 " + today) }
+        }
     }
     return t.prefix + String(status) + "] " + body
+}
+
+// MARK: - Recurrence
+
+/// The next occurrence of a recurring task as a new open line, the way the Tasks plugin makes it when a task is
+/// closed: every planning date moves by the same number of days. nil = a rule this app doesn't understand.
+// ponytail: only "every [N] day|week|month|year", "every weekday", optional "when done"; the rest is closed in Obsidian
+func nextOccurrence(_ t: TaskItem, today: String = day()) -> String? {
+    guard var rule = t.recurrence?.lowercased() else { return nil }
+    let whenDone = rule.hasSuffix(" when done")
+    if whenDone { rule = String(rule.dropLast(" when done".count)) }
+    var step: (Calendar.Component, Int)?
+    if rule != "every weekday" {
+        guard let g = groups("^every (?:(\\d+) )?(day|week|month|year)s?$", rule), let n = g[1].isEmpty ? 1 : Int(g[1]), n > 0 else { return nil }
+        step = ["day": (.day, n), "week": (.day, 7 * n), "month": (.month, n), "year": (.year, n)][g[2]]
+    }
+    let planning = ["📅", "⏳", "🛫"].map { ($0, groups($0 + "\\uFE0F? *(" + dateRe + ")", t.body)?[1]) }
+    guard let ref = planning.compactMap(\.1).first, let refDate = dayFmt.date(from: ref),
+          let base = whenDone ? dayFmt.date(from: today) : refDate else { return t.raw } // no dates: a plain copy
+    var next: Date
+    if let step {
+        guard let d = Calendar.current.date(byAdding: step.0, value: step.1, to: base) else { return nil }
+        next = d
+    } else {
+        next = addDays(1, to: base)
+        while Calendar.current.isDateInWeekend(next) { next = addDays(1, to: next) }
+    }
+    let delta = Calendar.current.dateComponents([.day], from: refDate, to: next).day ?? 0
+    var line = t.raw
+    for (emoji, d) in planning {
+        if let d, let date = dayFmt.date(from: d) {
+            line = sub(line, emoji + "\\uFE0F? *" + dateRe, emoji + " " + day(addDays(delta, to: date)))
+        }
+    }
+    return line
 }
 
 // MARK: - File patching
@@ -165,10 +211,17 @@ func splitLines(_ text: String) -> ([String], String) {
 /// Re-reads the file, finds the task by exact line text (nearest to its old position),
 /// replaces only that line, writes atomically and verifies.
 func patchFile(_ notePath: String, _ t: TaskItem, _ e: Edit, comment: String? = nil) throws {
+    var next: String? // closing a recurring task also adds its next occurrence, like the Tasks plugin does
     switch e {
-    case .done, .cancel:
-        // The Tasks plugin creates the next occurrence when a recurring task is closed; a plain line edit would lose it.
-        if t.body.contains("🔁") { throw Fail(msg: "Повторяющуюся задачу закрой в Obsidian: иначе следующее повторение не создастся.") }
+    case .done:
+        if let rule = t.recurrence {
+            guard let n = nextOccurrence(t) else {
+                throw Fail(msg: "Правило повторения «\(rule)» приложение не понимает. Закрой эту задачу в Obsidian, иначе следующее повторение не создастся.")
+            }
+            next = n
+        } else if t.body.contains("🔁") {
+            throw Fail(msg: "Не разобрал правило повторения. Закрой эту задачу в Obsidian.")
+        }
     case .text(let s):
         if oneLine(s).isEmpty { throw Fail(msg: "Пустой текст задачи не сохраняю.") }
     default: break
@@ -181,6 +234,7 @@ func patchFile(_ notePath: String, _ t: TaskItem, _ e: Edit, comment: String? = 
         throw Fail(msg: "Строка задачи изменилась в заметке. Список обновлён, повтори действие.")
     }
     lines[i] = edit(e, t, comment: comment)
+    if let next { lines.insert(next, at: i) } // above the closed one, as Tasks does by default
     let out = lines.joined(separator: nl)
     try out.write(toFile: path, atomically: true, encoding: .utf8)
     guard try String(contentsOfFile: path, encoding: .utf8) == out else {
@@ -463,9 +517,24 @@ func selfTest() {
     try! "- [ ] weekly 🔁 every week 📅 2026-11-23\n".write(toFile: rec, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(atPath: rec) }
     let recTask = TaskItem.parse("- [ ] weekly 🔁 every week 📅 2026-11-23", line: 0)!
-    do { try patchFile(rec, recTask, .done); preconditionFailure("recurring task must not be closed here") } catch {}
     do { try patchFile(rec, recTask, .text("  ")); preconditionFailure("empty text must be rejected") } catch {}
-    try! patchFile(rec, recTask, .due("2026-11-24"))
+    eq(recTask.recurrence ?? "", "every week")
+    eq(recTask.title, "weekly")
+    try! patchFile(rec, recTask, .done)
+    let recOut = try! String(contentsOfFile: rec, encoding: .utf8)
+    eq(recOut, "- [ ] weekly 🔁 every week 📅 2026-11-30\n- [x] weekly 🔁 every week 📅 2026-11-23 ✅ \(day())\n")
+    func nxt(_ l: String) -> String? { nextOccurrence(TaskItem.parse(l, line: 0)!, today: td) }
+    eq(nxt("- [ ] m 🔁 every month ⏳ 2026-01-29 📅 2026-01-31") ?? "nil", "- [ ] m 🔁 every month ⏳ 2026-02-26 📅 2026-02-28")
+    eq(nxt("- [ ] w 🔁 every weekday 📅 2026-11-27") ?? "nil", "- [ ] w 🔁 every weekday 📅 2026-11-30")
+    eq(nxt("- [ ] d 🔁 every 2 weeks when done 📅 2026-11-01") ?? "nil", "- [ ] d 🔁 every 2 weeks when done 📅 2026-12-07")
+    precondition(nxt("- [ ] x 🔁 every month on the 15th 📅 2026-11-15") == nil)
+    let odd = TaskItem.parse("- [ ] x 🔁 every month on the 15th 📅 2026-11-15", line: 0)!
+    try! "\(odd.raw)\n".write(toFile: rec, atomically: true, encoding: .utf8)
+    do { try patchFile(rec, odd, .done); preconditionFailure("unknown rule must be rejected") } catch {}
+    eq(edit(.recurrence("every week"), a, today: td), "- [ ] a [[note|n]] #mod/radar 🔺 🔁 every week 📅 2026-11-23")
+    eq(edit(.recurrence("every day"), f, today: td), "- [ ] f #mod/radar 🔁 every day 📅 2026-11-23")
+    eq(edit(.recurrence(nil), recTask), "- [ ] weekly 📅 2026-11-23")
+    eq(edit(.done, recTask, today: td, comment: "c"), "- [x] weekly 💬 c 🔁 every week 📅 2026-11-23 ✅ 2026-11-23")
     print("synthetic checks: ok")
 
     // Real note: work on a temp copy, the original is never written.
