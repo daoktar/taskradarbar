@@ -59,6 +59,8 @@ func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en",
         .background(Color(white: dark ? 0.17 : 0.965)))
     // "notify" as an extra argument opens the meeting reminders row
     if CommandLine.arguments.contains("notify") { store.meetingLead = ["Today - meetings": 60]; store.notifying = true }
+    // "daily": the daily reminder row of a section without meetings
+    if CommandLine.arguments.contains("daily") { store.sectionName = "Today"; store.dailyTime = ["Today": 570]; store.notifying = true }
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
     // let SwiftUI measure the list and settle on its height

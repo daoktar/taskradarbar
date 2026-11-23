@@ -9,7 +9,6 @@
 ## Ideas
 
 - [ ] An Obsidian plugin version.
-- [ ] A reminder about everything in a chosen filter at a set time of day, for example "Today" at 9:00. Done so far: reminders before meetings, for blocks with a time in their bold label.
 
 ## Known simplifications in the code (marked `ponytail:`)
 
@@ -21,6 +20,7 @@
 - [ ] Recurrence: the app understands only `every [N] day|week|month|year`, `every weekday` and `when done`; tasks with other rules (`every month on the 15th`) have to be completed in Obsidian.
 - [ ] The board note is the first wikilink at the top of the task note and is not checked for existence; a board chosen in settings must be in the same vault and can be replaced but not cleared.
 - [ ] Reminders before meetings: the app posts them itself while it runs, nothing is scheduled with macOS, so a reminder missed while the Mac slept is skipped. The time in the block label is taken as today's, and a reminder never crosses midnight. The setting is keyed by the note heading; renaming the heading drops it.
+- [ ] Daily reminder for a section: also posted by the app itself, so skipped if the app is not running at that minute. The setting is keyed by the section name as shown; renaming the heading or switching the language (for "All open") drops it.
 - [ ] The comment draft is stored in the app settings and keyed by the task text; editing the text loses the draft.
 
 ## Security (from the audit of 2026-11-23)

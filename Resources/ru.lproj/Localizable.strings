@@ -123,3 +123,7 @@
 "Close" = "Закрыть";
 "Obsidian note with the board" = "Заметка Obsidian с доской";
 "The board note must be in the same vault as the task note." = "Заметка-доска должна лежать в том же хранилище, что и заметка с задачами.";
+"Every day at" = "Каждый день в";
+"Daily reminder for this section" = "Ежедневное напоминание по разделу";
+"Sends this section's tasks in 5 seconds" = "Пришлёт задачи этого раздела через 5 секунд";
+"on" = "вкл";
