@@ -10,7 +10,6 @@
 
 - [ ] An Obsidian plugin version.
 - [ ] Fine-grained notifications for the tasks of a chosen filter, for example a reminder about everything in "Today" at a set time.
-- [ ] Open the note as a kanban board from the app: the same tasks as columns by due date, when the note links to such a board.
 
 ## Known simplifications in the code (marked `ponytail:`)
 
@@ -20,6 +19,7 @@
 - [ ] File changes are detected by polling every 3 seconds.
 - [ ] Reminders are kept by macOS and keyed by the task text; editing the text drops the reminder.
 - [ ] Recurrence: the app understands only `every [N] day|week|month|year`, `every weekday` and `when done`; tasks with other rules (`every month on the 15th`) have to be completed in Obsidian.
+- [ ] The board note is the first wikilink at the top of the task note and is not checked for existence; a board chosen in settings must be in the same vault and can be replaced but not cleared.
 - [ ] The comment draft is stored in the app settings and keyed by the task text; editing the text loses the draft.
 
 ## Security (from the audit of 2026-11-23)

@@ -9,6 +9,7 @@ A macOS menu bar app that shows the tasks of one [Obsidian](https://obsidian.md)
 
 - **Sections come from the note.** Each ```` ```tasks ```` query block in the note becomes a filter in the app. Blocks under one heading can be merged into one filter with collapsible groups.
 - **Actions:** complete, cancel, move to tomorrow, pick a due date, priority, recurrence, edit text, native macOS reminders, a comment that is written into the task when it is closed.
+- **Board:** a button opens the same tasks as columns by due date in Obsidian, if you keep such a [board note](docs/board.md).
 - **Search**, three sort modes, light and dark mode.
 - **Interface languages:** English, German, French, Russian.
 - **One line per action.** The app re-reads the note, finds the task by its exact text, replaces that single line, writes atomically and verifies. If the line changed in the meantime, nothing is written.
@@ -19,6 +20,7 @@ A macOS menu bar app that shows the tasks of one [Obsidian](https://obsidian.md)
 - Reads and writes one file: the note you picked. Settings live in `defaults` under `com.ktar.taskradarbar`.
 - Asks for notification permission only when you set the first reminder. No other permissions.
 - Only `http` / `https` links in task text are clickable.
+- The board button and the guide link open Obsidian and your browser; the app creates no files in the vault.
 - No third-party dependencies.
 
 ## Install
@@ -49,6 +51,12 @@ The screenshots above are rendered by the app itself from made-up tasks, no scre
 .build/release/taskradarbar --screenshots docs
 ```
 
+## Board
+
+The board button in the header opens a board note in Obsidian: the same tasks as columns, made of Tasks queries and a CSS snippet. The app finds the board by the first `[[wikilink]]` at the top of the task note, or you choose the note in the gear menu. Without a board the button shows the setup steps; the snippet and a note template are in [docs/board.md](docs/board.md).
+
+<img src="docs/screenshot-board.png" width="420" alt="The popover with the board setup steps open: Tasks plugin, CSS snippet, board note">
+
 ## Translations
 
 Interface texts are in `Resources/<language>.lproj/Localizable.strings`, the standard Apple strings format. The key is the English text used in the code (`L("Choose note…")`), the value is the translation; a missing key falls back to English.
@@ -76,7 +84,6 @@ Planned or considered, not done yet:
 - tasks from other files of the vault, not only one note
 - an Obsidian plugin version
 - notifications for all tasks of a chosen filter
-- opening the note as a kanban board
 - App Sandbox without the network entitlement
 - Developer ID signing and notarization of the release builds
 

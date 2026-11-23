@@ -4,7 +4,7 @@ import AppKit
 /// `taskradarbar --screenshots docs`: renders the README pictures from made-up tasks.
 /// Nothing is captured from the screen, no real note is read, the user's settings are not touched:
 /// the window content is drawn offscreen and framed with a drawn menu bar and popover.
-func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en") {
+func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en", boardHelp: Bool = false) {
     let d = { (n: Int) in day(addDays(n)) }
     let note = """
     ## Today
@@ -53,6 +53,7 @@ func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en")
     NSApplication.shared.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let store = Store(defaults: defaults)
     store.demoExpanded = expanded
+    store.boardHelp = boardHelp
     let host = NSHostingView(rootView: ContentView().environmentObject(store)
         // a real popover is a light translucent material, noticeably lighter than a window background
         .background(Color(white: dark ? 0.17 : 0.965)))

@@ -101,3 +101,13 @@
 "Can't parse the query line: “%@”" = "Ligne de requête incomprise : « %@ »";
 "Tasks" = "Tâches";
 "All open" = "Toutes les tâches ouvertes";
+"Open the board in Obsidian" = "Ouvrir le tableau dans Obsidian";
+"Board: the same tasks as columns in Obsidian" = "Tableau : les mêmes tâches en colonnes dans Obsidian";
+"1. Install and enable the Tasks plugin in Obsidian." = "1. Installez et activez le plugin Tasks dans Obsidian.";
+"2. Add the CSS snippet from the guide and enable it in Settings → Appearance." = "2. Ajoutez l’extrait CSS du guide et activez-le dans Paramètres → Apparence.";
+"3. Create the board note from the template, then link it at the top of the task note or choose it here." = "3. Créez la note du tableau à partir du modèle, puis liez-la en haut de la note de tâches ou choisissez-la ici.";
+"Board setup guide ↗" = "Guide du tableau ↗";
+"Choose board note…" = "Choisir la note du tableau…";
+"Close" = "Fermer";
+"Obsidian note with the board" = "Note Obsidian avec le tableau";
+"The board note must be in the same vault as the task note." = "La note du tableau doit être dans le même coffre que la note de tâches.";

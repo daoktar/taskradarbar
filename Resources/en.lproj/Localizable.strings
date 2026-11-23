@@ -101,3 +101,13 @@
 "Can't parse the query line: “%@”" = "Can't parse the query line: “%@”";
 "Tasks" = "Tasks";
 "All open" = "All open";
+"Open the board in Obsidian" = "Open the board in Obsidian";
+"Board: the same tasks as columns in Obsidian" = "Board: the same tasks as columns in Obsidian";
+"1. Install and enable the Tasks plugin in Obsidian." = "1. Install and enable the Tasks plugin in Obsidian.";
+"2. Add the CSS snippet from the guide and enable it in Settings → Appearance." = "2. Add the CSS snippet from the guide and enable it in Settings → Appearance.";
+"3. Create the board note from the template, then link it at the top of the task note or choose it here." = "3. Create the board note from the template, then link it at the top of the task note or choose it here.";
+"Board setup guide ↗" = "Board setup guide ↗";
+"Choose board note…" = "Choose board note…";
+"Close" = "Close";
+"Obsidian note with the board" = "Obsidian note with the board";
+"The board note must be in the same vault as the task note." = "The board note must be in the same vault as the task note.";

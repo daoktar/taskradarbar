@@ -101,3 +101,13 @@
 "Can't parse the query line: “%@”" = "Не понял строку запроса: «%@»";
 "Tasks" = "Задачи";
 "All open" = "Все открытые";
+"Open the board in Obsidian" = "Открыть доску в Obsidian";
+"Board: the same tasks as columns in Obsidian" = "Доска: те же задачи колонками в Obsidian";
+"1. Install and enable the Tasks plugin in Obsidian." = "1. Установите и включите плагин Tasks в Obsidian.";
+"2. Add the CSS snippet from the guide and enable it in Settings → Appearance." = "2. Добавьте CSS-сниппет из инструкции и включите его в Настройки → Оформление.";
+"3. Create the board note from the template, then link it at the top of the task note or choose it here." = "3. Создайте заметку-доску по шаблону, затем дайте на неё ссылку в начале заметки с задачами или выберите её здесь.";
+"Board setup guide ↗" = "Как настроить доску ↗";
+"Choose board note…" = "Выбрать заметку-доску…";
+"Close" = "Закрыть";
+"Obsidian note with the board" = "Заметка Obsidian с доской";
+"The board note must be in the same vault as the task note." = "Заметка-доска должна лежать в том же хранилище, что и заметка с задачами.";
