@@ -12,8 +12,11 @@ enum Main {
         if let i = CommandLine.arguments.firstIndex(of: "--icon"), CommandLine.arguments.count > i + 1 {
             writeIconPNG(CommandLine.arguments[i + 1]); return
         }
-        if let i = CommandLine.arguments.firstIndex(of: "--screenshot"), CommandLine.arguments.count > i + 1 {
-            writeDemoScreenshot(CommandLine.arguments[i + 1]); return
+        if let i = CommandLine.arguments.firstIndex(of: "--screenshots"), CommandLine.arguments.count > i + 1 {
+            let dir = CommandLine.arguments[i + 1]
+            writeDemoScreenshot(dir + "/screenshot.png", expanded: nil)
+            writeDemoScreenshot(dir + "/screenshot-panel.png", expanded: "Book a room")
+            return
         }
         let app = NSApplication.shared
         let delegate = AppDelegate()
@@ -144,6 +147,8 @@ final class Store: ObservableObject {
 
     /// Injected so the README screenshot mode can run on throwaway settings.
     let defaults: UserDefaults
+    /// README screenshot only: title prefix of the task whose panel is drawn open.
+    var demoExpanded: String?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -614,14 +619,14 @@ struct TaskRow: View {
                     Spacer(minLength: 0)
                     // source note(s): top-right corner, right above the "more" button
                     ForEach(store.sources(task), id: \.1) { name, url in
-                        Button { NSWorkspace.shared.open(url) } label: { icon("arrow.up.right.square") }
+                        Button { NSWorkspace.shared.open(url) } label: { icon("arrow.up.right.square").padding(.vertical, -4) } // don't make a one-line task taller than its text
                             .buttonStyle(.plain)
                             .help(L("Открыть заметку-источник: ", "Open source note: ") + name)
                             .opacity(rest)
                     }
                     if store.sources(task).isEmpty {
                         // no source note in the task: the button opens the note the task lives in
-                        Button { store.openNote() } label: { icon("arrow.up.right.square") }
+                        Button { store.openNote() } label: { icon("arrow.up.right.square").padding(.vertical, -4) } // don't make a one-line task taller than its text
                             .buttonStyle(.plain)
                             .help(L("Открыть заметку с задачей: ", "Open the note with this task: ") + URL(fileURLWithPath: store.notePath).deletingPathExtension().lastPathComponent)
                             .opacity(rest)
@@ -710,6 +715,7 @@ struct TaskRow: View {
         .padding(.vertical, 7)
         .contentShape(Rectangle())
         .onHover { s.hover = $0 }
+        .onAppear { if let d = store.demoExpanded, task.title.hasPrefix(d) { s.expanded = true } }
     }
 
     var actions: some View {
@@ -761,8 +767,8 @@ struct TaskRow: View {
             }
             if store.recurring {
                 line(L("Повтор", "Repeat")) {
-                    ForEach([(L("нет", "none"), ""), (L("день", "day"), "every day"), (L("будни", "weekdays"), "every weekday"), (L("неделя", "week"), "every week"),
-                             (L("2 недели", "2 weeks"), "every 2 weeks"), (L("месяц", "month"), "every month"), (L("год", "year"), "every year")], id: \.1) { label, rule in
+                    ForEach([(L("нет", "none"), ""), (L("день", "day"), "every day"), (L("будни", "Mon–Fri"), "every weekday"), (L("неделя", "week"), "every week"),
+                             (L("2 нед", "2 wk"), "every 2 weeks"), (L("месяц", "month"), "every month"), (L("год", "year"), "every year")], id: \.1) { label, rule in
                         chip(label, active: (task.recurrence ?? "") == rule) {
                             store.apply(.recurrence(rule.isEmpty ? nil : rule), to: task)
                         }
@@ -821,6 +827,19 @@ struct TaskRow: View {
     }
 
     func chip(_ label: String, active: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(label, action: action).buttonStyle(.bordered).tint(active ? Color.accentColor : nil)
+        // Own look instead of .bordered: never truncates its label, and the active state stays visible
+        // even when the window is not key.
+        Button(action: action) {
+            Text(label)
+                .font(.callout)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 6) // seven "repeat" chips must fit the 480pt window
+                .padding(.vertical, 4)
+                .foregroundStyle(active ? Color.white : Color.primary)
+                .background(active ? Color.accentColor : Color(nsColor: .controlColor), in: RoundedRectangle(cornerRadius: 5))
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(active ? 0 : 0.15), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
     }
 }
