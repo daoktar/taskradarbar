@@ -123,3 +123,7 @@
 "Close" = "Close";
 "Obsidian note with the board" = "Obsidian note with the board";
 "The board note must be in the same vault as the task note." = "The board note must be in the same vault as the task note.";
+"Every day at" = "Every day at";
+"Daily reminder for this section" = "Daily reminder for this section";
+"Sends this section's tasks in 5 seconds" = "Sends this section's tasks in 5 seconds";
+"on" = "on";

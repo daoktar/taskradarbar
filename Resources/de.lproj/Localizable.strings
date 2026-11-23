@@ -123,3 +123,7 @@
 "Close" = "Schließen";
 "Obsidian note with the board" = "Obsidian-Notiz mit dem Board";
 "The board note must be in the same vault as the task note." = "Die Board-Notiz muss im selben Vault liegen wie die Aufgabennotiz.";
+"Every day at" = "Täglich um";
+"Daily reminder for this section" = "Tägliche Erinnerung für diesen Abschnitt";
+"Sends this section's tasks in 5 seconds" = "Sendet die Aufgaben dieses Abschnitts in 5 Sekunden";
+"on" = "an";

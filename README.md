@@ -11,6 +11,8 @@ A macOS menu bar app that shows the tasks of one [Obsidian](https://obsidian.md)
 - **Actions:** complete, cancel, move to tomorrow, pick a due date, priority, recurrence, edit text, native macOS reminders, a comment that is written into the task when it is closed.
 - **Board:** a button opens the same tasks as columns by due date in Obsidian, if you keep such a [board note](docs/board.md).
 - **Reminders before meetings.** A query block whose bold label starts with a time (`**15:30 - Roadmap review**`) is a meeting: the app sends one notification with that block's tasks 15 minutes, 30 minutes, 1 hour or 2 hours before it. The default for all sections is in the gear menu; the bell in the header sets another lead time, or none, for one section.
+- **Daily reminder for a section.** In a section without timed meetings the same bell sets a time of day: the app then sends one notification with everything in that section, every day at that time.
+- Both notifications lead with the task count and list the most urgent tasks first; a click opens the popover on that section.
 - **Search**, three sort modes, light and dark mode.
 - **Interface languages:** English, German, French, Russian.
 - **One line per action.** The app re-reads the note, finds the task by its exact text, replaces that single line, writes atomically and verifies. If the line changed in the meantime, nothing is written.
@@ -85,7 +87,6 @@ Planned or considered, not done yet:
 - creating new tasks from the app
 - tasks from other files of the vault, not only one note
 - an Obsidian plugin version
-- a reminder about all tasks of any filter at a set time of day (reminders before meetings are done)
 - App Sandbox without the network entitlement
 - Developer ID signing and notarization of the release builds
 

@@ -74,11 +74,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func toggle() {
-        guard let button = item.button else { return }
         if popover.isShown { popover.performClose(nil); return }
         // A click on the icon is also a click outside the popover: the transient popover closes itself on
         // mouse-down, and this action would then reopen it. Treat a click right after that close as "close".
         if Date().timeIntervalSince(closedAt) < 0.3 { return }
+        show()
+    }
+
+    func show() {
+        guard let button = item.button, !popover.isShown else { return }
         store.reload()
         store.refreshReminders()
         NSApp.activate(ignoringOtherApps: true)
@@ -94,6 +98,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler handler: @escaping (UNNotificationPresentationOptions) -> Void) {
         handler([.banner, .sound])
+    }
+
+    // A click on a digest opens the window on its section.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler handler: @escaping () -> Void) {
+        let section = response.notification.request.content.userInfo["section"] as? String
+        DispatchQueue.main.async {
+            if let section {
+                self.store.sectionName = section
+                self.show()
+            }
+            handler()
+        }
     }
 }
 
@@ -149,6 +166,10 @@ final class Store: ObservableObject {
     @Published var meetingLead: [String: Int] {
         didSet { defaults.set(meetingLead, forKey: "meetingLead") }
     }
+    /// Daily reminder for a section without meetings: section name -> minutes from midnight. Absent = off.
+    @Published var dailyTime: [String: Int] {
+        didSet { defaults.set(dailyTime, forKey: "dailyTime") }
+    }
     @Published var notifying = false
     @Published var trayIcon: String {
         didSet { defaults.set(trayIcon, forKey: "trayIcon") }
@@ -187,6 +208,7 @@ final class Store: ObservableObject {
         recurring = defaults.object(forKey: "recurring") as? Bool ?? true
         meetingDefault = defaults.integer(forKey: "meetingDefault")
         meetingLead = defaults.dictionary(forKey: "meetingLead") as? [String: Int] ?? [:]
+        dailyTime = defaults.dictionary(forKey: "dailyTime") as? [String: Int] ?? [:]
         trayIcon = defaults.string(forKey: "trayIcon") ?? "scope"
         sort = Sort(rawValue: defaults.string(forKey: "sort") ?? "") ?? .due
         reload()
@@ -333,7 +355,8 @@ final class Store: ObservableObject {
         post(id: t.title, title: L("Task radar"), body: String(rich(t).characters), after: date.timeIntervalSinceNow)
     }
 
-    func post(id: String, title: String, body: String, after: TimeInterval) {
+    /// `section`: the section a click on the notification opens.
+    func post(id: String, title: String, subtitle: String = "", body: String, section: String? = nil, after: TimeInterval) {
         guard hasBundle else { error = L("Reminders only work from the built .app"); return }
         let c = UNUserNotificationCenter.current()
         c.requestAuthorization(options: [.alert, .sound]) { granted, _ in
@@ -343,7 +366,9 @@ final class Store: ObservableObject {
             }
             let content = UNMutableNotificationContent()
             content.title = title
+            content.subtitle = subtitle
             content.body = body
+            if let section { content.userInfo = ["section": section] }
             content.sound = .default
             // interval trigger: fires even if the picked minute has already started
             let req = UNNotificationRequest(identifier: id, content: content,
@@ -396,7 +421,9 @@ struct ContentView: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
             }
-            if store.notifying && !store.meetings.isEmpty { MeetingRow() }
+            if store.notifying {
+                if store.meetings.isEmpty { DailyRow() } else { MeetingRow() }
+            }
             Divider()
             if store.boardHelp { BoardHelp() }
 
@@ -527,15 +554,16 @@ struct ContentView: View {
             Button { store.openBoard() } label: { Image(systemName: "rectangle.split.3x1").font(.system(size: 16)) }
                 .buttonStyle(.plain)
                 .help(L("Open the board in Obsidian"))
-            if !store.meetings.isEmpty {
-                let on = store.lead(store.meetingKey) > 0
-                Button { store.notifying.toggle() } label: {
-                    Image(systemName: on ? "bell.fill" : "bell").font(.system(size: 16))
-                        .foregroundStyle(on ? Color.orange : Color.primary)
-                }
-                .buttonStyle(.plain)
-                .help(L("Reminders before meetings"))
+            // always there: a section with timed meetings is reminded before each meeting,
+            // any other section once a day at a set time
+            let hasMeetings = !store.meetings.isEmpty
+            let bellOn = hasMeetings ? store.lead(store.meetingKey) > 0 : store.dailyTime[store.dailyKey] != nil
+            Button { store.notifying.toggle() } label: {
+                Image(systemName: bellOn ? "bell.fill" : "bell").font(.system(size: 16))
+                    .foregroundStyle(bellOn ? Color.orange : Color.primary)
             }
+            .buttonStyle(.plain)
+            .help(hasMeetings ? L("Reminders before meetings") : L("Daily reminder for this section"))
 
             Menu {
                 if !store.notePath.isEmpty {

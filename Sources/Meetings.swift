@@ -22,9 +22,16 @@ func meetingDue(_ label: String, lead: Int, nowMinutes: Int) -> Bool {
     return (0..<2).contains(nowMinutes - (start - lead))
 }
 
-func digestBody(_ titles: [String]) -> String {
-    let lines = titles.prefix(5).map { "• " + $0 }
-    return (lines + (titles.count > 5 ? [L("and %@ more", "\(titles.count - 5)")] : [])).joined(separator: "\n")
+/// Characters of one task line in the body: a longer line wraps and pushes the next tasks out of the collapsed banner.
+// ponytail: tuned by eye for the default banner width (about 38 characters with the bullet), macOS gives no way
+// to measure it; wide letters or a larger system text size can still wrap a line
+let digestLine = 34
+
+/// A collapsed banner shows the subtitle and three body lines, so: first task -> subtitle (macOS cuts it to
+/// one line itself), tasks 2...8 -> one short body line each, then "and N more".
+func digestText(_ titles: [String]) -> (subtitle: String, body: String) {
+    let rest = titles.dropFirst().prefix(7).map { "• " + ($0.count > digestLine ? String($0.prefix(digestLine - 1)).trimmed + "…" : $0) }
+    return (titles.first ?? "", (rest + (titles.count > 8 ? [L("and %@ more", "\(titles.count - 8)")] : [])).joined(separator: "\n"))
 }
 
 private func minutesNow(_ now: Date = Date()) -> Int {
@@ -76,16 +83,56 @@ extension Store {
             fired.append(key)
             postDigest(b, after: 1)
         }
+        // daily reminders of sections without meetings: same two-minute window, same "sent today" list
+        for (name, at) in dailyTime where (0..<2).contains(mins - at) {
+            let key = "\(today)|daily|\(at)|\(name)"
+            guard !fired.contains(key), let sec = sections.first(where: { $0.name == name }), sec.error == nil else { continue }
+            fired.append(key)
+            postDaily(sec, after: 1)
+        }
         if fired != saved { defaults.set(fired, forKey: "meetingFired") }
+    }
+
+    // MARK: Daily reminder for a section
+    // ponytail: keyed by the section name as shown, so renaming the heading or switching the language
+    // ("All open") orphans the setting; like meeting reminders, skipped if the app isn't running at that minute
+
+    var dailyKey: String { section?.name ?? "" }
+
+    /// nil = off.
+    func setDaily(_ minutes: Int?) {
+        guard !dailyKey.isEmpty else { return }
+        dailyTime[dailyKey] = minutes
+        if minutes != nil { askNotifications() }
+    }
+
+    /// One notification with all open tasks of the section; an empty section sends nothing.
+    @discardableResult
+    func postDaily(_ sec: Section, after: TimeInterval) -> Bool {
+        let items = sec.select(tasks, sort: .priority)
+        guard !items.isEmpty else { return false }
+        postDigest(id: "daily|" + sec.name, label: sec.name, items, section: sec.name, after: after)
+        return true
+    }
+
+    func testDaily() {
+        guard let sec = section, postDaily(sec, after: 5) else { error = L("Nothing in this section"); return }
     }
 
     /// One notification with the block's tasks; an empty block sends nothing.
     @discardableResult
     func postDigest(_ b: Section, after: TimeInterval) -> Bool {
-        let items = b.select(tasks, sort: sort)
+        let items = b.select(tasks, sort: .priority)
         guard let label = b.sub, !items.isEmpty else { return false }
-        post(id: "meeting|" + b.name, title: "\(label) · \(items.count)", body: digestBody(items.map { String(rich($0).characters) }), after: after)
+        // with "merge blocks" on, the block is shown inside the section named after its heading
+        postDigest(id: "meeting|" + b.name, label: label, items, section: sections.contains { $0.name == b.name } ? b.name : b.heading, after: after)
         return true
+    }
+
+    /// The count leads the title so a long label can't cut it off; most urgent tasks first whatever the window's sort.
+    private func postDigest(id: String, label: String, _ items: [TaskItem], section: String, after: TimeInterval) {
+        let text = digestText(items.map { String(rich($0).characters) })
+        post(id: id, title: "\(items.count) · \(label)", subtitle: text.subtitle, body: text.body, section: section, after: after)
     }
 
     /// "Check": the nearest meeting that has tasks, in 5 seconds, through the same code as the real reminder.
@@ -123,13 +170,50 @@ struct MeetingRow: View {
     }
 }
 
+/// Settings row for a section without timed meetings: one reminder a day with everything in it.
+struct DailyRow: View {
+    @EnvironmentObject var store: Store
+
+    var body: some View {
+        let at = store.dailyTime[store.dailyKey]
+        HStack(spacing: 6) {
+            Image(systemName: "clock").foregroundStyle(.secondary)
+            chip(L("off"), active: at == nil) { store.setDaily(nil) }
+            Text(L("Every day at")).font(.callout).foregroundStyle(at == nil ? .secondary : .primary)
+            // editing the time switches the reminder on; 9:00 is only what the field shows while it is off
+            DatePicker("", selection: Binding(
+                get: { Calendar.current.date(bySettingHour: (at ?? 540) / 60, minute: (at ?? 540) % 60, second: 0, of: Date()) ?? Date() },
+                set: { d in
+                    let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+                    store.setDaily((c.hour ?? 9) * 60 + (c.minute ?? 0))
+                }), displayedComponents: .hourAndMinute)
+                .datePickerStyle(.stepperField)
+                .labelsHidden()
+                .fixedSize()
+            if at == nil { chip(L("on"), active: false) { store.setDaily(540) } }
+            Spacer(minLength: 0)
+            chip(L("Check"), active: false) { store.testDaily() }
+                .help(L("Sends this section's tasks in 5 seconds"))
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 8)
+    }
+}
+
 func meetingSelfTest() {
     precondition(meetingMinutes("15:30 - Review") == 930 && meetingMinutes("9.05 Standup") == 545)
     precondition(meetingMinutes("Weekly sync") == nil && meetingMinutes("25:00 - x") == nil && meetingMinutes("2026 plan") == nil)
     let due = { (now: Int) in meetingDue("15:30 - Review", lead: 60, nowMinutes: now) }
     precondition(!due(869) && due(870) && due(871) && !due(872) && !due(930), "meeting reminder window")
     precondition(!meetingDue("00:30 - Night", lead: 60, nowMinutes: 0) && !meetingDue("Weekly", lead: 60, nowMinutes: 0))
-    precondition(digestBody(["a", "b"]) == "• a\n• b")
-    precondition(digestBody((1...7).map(String.init)) == "• 1\n• 2\n• 3\n• 4\n• 5\nand 2 more")
+    let three = digestText(["Update slides", "Invite the designer", "Check the numbers"])
+    precondition(three.subtitle == "Update slides" && three.body == "• Invite the designer\n• Check the numbers", "digest: three short")
+    let long = String(repeating: "Agree the wording with legal ", count: 4)
+    let cut = digestText(["Update slides", long, "Check the numbers"]).body.components(separatedBy: "\n")
+    precondition(cut.count == 2 && cut[0].count == digestLine + 2 && cut[0].hasSuffix("…") && cut[1] == "• Check the numbers", "digest: long task")
+    precondition(digestText([long, "b"]).subtitle == long, "digest: the subtitle is cut by macOS, not here")
+    let twelve = digestText((1...12).map { "Task \($0)" })
+    precondition(twelve.subtitle == "Task 1" && twelve.body == (2...8).map { "• Task \($0)" }.joined(separator: "\n") + "\nand 4 more", "digest: twelve")
+    precondition(digestText(["only"]).body == "" && digestText((1...8).map(String.init)).body.hasSuffix("• 8"), "digest: edges")
     print("meeting reminders: ok")
 }
