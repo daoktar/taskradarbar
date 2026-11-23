@@ -17,6 +17,7 @@ enum Main {
             let lang = CommandLine.arguments.count > i + 2 ? CommandLine.arguments[i + 2] : "en" // optional: check a translation's layout
             writeDemoScreenshot(dir + "/screenshot.png", expanded: nil, lang: lang)
             writeDemoScreenshot(dir + "/screenshot-panel.png", expanded: "Book a room", lang: lang)
+            writeDemoScreenshot(dir + "/screenshot-board.png", expanded: nil, lang: lang, boardHelp: true)
             return
         }
         let app = NSApplication.shared
@@ -82,7 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         store.refreshReminders()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        let window = popover.contentViewController?.view.window
+        window?.makeKey()
+        window?.makeFirstResponder(nil) // otherwise the section menu opens with a focus ring around it
     }
 
     func popoverDidClose(_ notification: Notification) { closedAt = Date() }
@@ -138,10 +141,24 @@ final class Store: ObservableObject {
     @Published var recurring: Bool {
         didSet { defaults.set(recurring, forKey: "recurring") }
     }
+    /// Reminders before meetings, see Meetings.swift: the default for every section (0 = off) and the sections
+    /// that chose their own, minutes by note heading.
+    @Published var meetingDefault: Int {
+        didSet { defaults.set(meetingDefault, forKey: "meetingDefault"); if meetingDefault > 0 { askNotifications() } }
+    }
+    @Published var meetingLead: [String: Int] {
+        didSet { defaults.set(meetingLead, forKey: "meetingLead") }
+    }
+    @Published var notifying = false
     @Published var trayIcon: String {
         didSet { defaults.set(trayIcon, forKey: "trayIcon") }
     }
     @Published var listHeight: CGFloat = 200
+    /// Board note chosen in settings; empty = the note's own link, see Board.swift.
+    @Published var boardPath: String {
+        didSet { defaults.set(boardPath, forKey: "boardPath") }
+    }
+    @Published var boardHelp = false
     private var mtime: Date?
     private var lastDay = ""
     private var timer: Timer?
@@ -154,6 +171,7 @@ final class Store: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         notePath = defaults.string(forKey: "notePath") ?? ""
+        boardPath = defaults.string(forKey: "boardPath") ?? ""
         sectionName = defaults.string(forKey: "section") ?? ""
         showTags = defaults.object(forKey: "showTags") as? Bool ?? true
         mergeBlocks = defaults.object(forKey: "mergeBlocks") as? Bool ?? true
@@ -167,12 +185,14 @@ final class Store: ObservableObject {
         lang = savedLang
         appLang = savedLang
         recurring = defaults.object(forKey: "recurring") as? Bool ?? true
+        meetingDefault = defaults.integer(forKey: "meetingDefault")
+        meetingLead = defaults.dictionary(forKey: "meetingLead") as? [String: Int] ?? [:]
         trayIcon = defaults.string(forKey: "trayIcon") ?? "scope"
         sort = Sort(rawValue: defaults.string(forKey: "sort") ?? "") ?? .due
         reload()
         refreshReminders()
         // ponytail: 3s mtime poll instead of FSEvents; atomic saves replace the inode and break fd watchers
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.reload() }
+        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.reload(); self?.checkMeetings() }
     }
 
     var section: Section? { sections.first { $0.name == sectionName } ?? sections.first }
@@ -310,8 +330,11 @@ final class Store: ObservableObject {
     }
 
     func remind(_ t: TaskItem, at date: Date) {
+        post(id: t.title, title: L("Task radar"), body: String(rich(t).characters), after: date.timeIntervalSinceNow)
+    }
+
+    func post(id: String, title: String, body: String, after: TimeInterval) {
         guard hasBundle else { error = L("Reminders only work from the built .app"); return }
-        let id = t.title, text = String(rich(t).characters)
         let c = UNUserNotificationCenter.current()
         c.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else {
@@ -319,12 +342,12 @@ final class Store: ObservableObject {
                 return
             }
             let content = UNMutableNotificationContent()
-            content.title = L("Task radar")
-            content.body = text
+            content.title = title
+            content.body = body
             content.sound = .default
             // interval trigger: fires even if the picked minute has already started
             let req = UNNotificationRequest(identifier: id, content: content,
-                                            trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, date.timeIntervalSinceNow), repeats: false))
+                                            trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, after), repeats: false))
             c.add(req) { err in
                 DispatchQueue.main.async {
                     if let err { self.error = err.localizedDescription }
@@ -373,7 +396,9 @@ struct ContentView: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
             }
+            if store.notifying && !store.meetings.isEmpty { MeetingRow() }
             Divider()
+            if store.boardHelp { BoardHelp() }
 
             if let e = store.error {
                 HStack(alignment: .top) {
@@ -499,12 +524,26 @@ struct ContentView: View {
             .fixedSize()
             .help(L("Sort"))
 
+            Button { store.openBoard() } label: { Image(systemName: "rectangle.split.3x1").font(.system(size: 16)) }
+                .buttonStyle(.plain)
+                .help(L("Open the board in Obsidian"))
+            if !store.meetings.isEmpty {
+                let on = store.lead(store.meetingKey) > 0
+                Button { store.notifying.toggle() } label: {
+                    Image(systemName: on ? "bell.fill" : "bell").font(.system(size: 16))
+                        .foregroundStyle(on ? Color.orange : Color.primary)
+                }
+                .buttonStyle(.plain)
+                .help(L("Reminders before meetings"))
+            }
+
             Menu {
                 if !store.notePath.isEmpty {
                     Text(URL(fileURLWithPath: store.notePath).deletingPathExtension().lastPathComponent)
                     Button(L("Open note in Obsidian")) { store.openNote() }
                 }
                 Button(L("Choose note…")) { store.pickNote() }
+                Button(L("Choose board note…")) { store.pickBoard() }
                 Button(L("Reload")) { store.reload(force: true); store.refreshReminders() }
                 Divider()
                 Toggle(L("Merge blocks under one heading"), isOn: $store.mergeBlocks)
@@ -518,6 +557,9 @@ struct ContentView: View {
                     Text(L("Scope")).tag("scope")
                     Text(L("Logo, monochrome")).tag("mono")
                     Text(L("Logo, colour")).tag("color")
+                }
+                Picker(L("Reminders before meetings"), selection: $store.meetingDefault) {
+                    ForEach(meetingLeads, id: \.1) { label, m in Text(label).tag(m) }
                 }
                 Button(L("Test notification (in 5 seconds)")) { store.testNotification() }
                 Toggle(L("Launch at login"), isOn: Binding(
@@ -836,21 +878,21 @@ struct TaskRow: View {
             Spacer(minLength: 0)
         }
     }
+}
 
-    func chip(_ label: String, active: Bool, _ action: @escaping () -> Void) -> some View {
-        // Own look instead of .bordered: never truncates its label, and the active state stays visible
-        // even when the window is not key.
-        Button(action: action) {
-            Text(label)
-                .font(.callout)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 6) // seven "repeat" chips must fit the 480pt window
-                .padding(.vertical, 4)
-                .foregroundStyle(active ? Color.white : Color.primary)
-                .background(active ? Color.accentColor : Color(nsColor: .controlColor), in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(active ? 0 : 0.15), lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
+func chip(_ label: String, active: Bool, _ action: @escaping () -> Void) -> some View {
+    // Own look instead of .bordered: never truncates its label, and the active state stays visible
+    // even when the window is not key.
+    Button(action: action) {
+        Text(label)
+            .font(.callout)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 6) // seven "repeat" chips must fit the 480pt window
+            .padding(.vertical, 4)
+            .foregroundStyle(active ? Color.white : Color.primary)
+            .background(active ? Color.accentColor : Color(nsColor: .controlColor), in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(active ? 0 : 0.15), lineWidth: 0.5))
     }
+    .buttonStyle(.plain)
 }

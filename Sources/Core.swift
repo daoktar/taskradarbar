@@ -471,6 +471,20 @@ func mergeSections(_ sections: [Section]) -> [Section] {
     }
 }
 
+/// The board note a task note points to: the first [[wikilink]] of its preamble, i.e. before the first
+/// `##` heading, code block or task. The label around the link is free text in any language.
+/// Frontmatter properties and ![[embeds]] don't count.
+func boardLink(_ text: String) -> String? {
+    var lines = splitLines(text).0[...]
+    if lines.first?.trimmed == "---", let end = lines.dropFirst().firstIndex(where: { $0.trimmed == "---" }) { lines = lines[(end + 1)...] }
+    for raw in lines {
+        let line = raw.trimmed
+        if line.hasPrefix("##") || line.hasPrefix("```") || TaskItem.parse(raw, line: 0) != nil { return nil }
+        if let g = groups("(?<!!)\\[\\[([^\\]|#]+)", line) { return g[1].trimmed }
+    }
+    return nil
+}
+
 // MARK: - Self-check: `taskradarbar --selftest [path-to-note]`
 
 func selfTest() {
@@ -591,6 +605,10 @@ func selfTest() {
     eq(edit(.recurrence("every day"), f, today: td), "- [ ] f #mod/radar 🔁 every day 📅 2026-11-23")
     eq(edit(.recurrence(nil), recTask), "- [ ] weekly 📅 2026-11-23")
     eq(edit(.done, recTask, today: td, comment: "c"), "- [x] weekly 💬 c 🔁 every week 📅 2026-11-23 ✅ 2026-11-23")
+    eq(boardLink("---\ntags: [a]\n---\n# Title\n**Board:** [[Dir/My board|board]] as columns\n## Today\n- [ ] t [[Other]]") ?? "nil", "Dir/My board")
+    eq(boardLink("---\nup: \"[[Index]]\"\n---\n![[banner.png]]\nsee [[Board#Columns]]") ?? "nil", "Board")
+    precondition(boardLink("# Title\n## Today\n- [ ] t [[Other]]") == nil && boardLink("- [ ] t [[Other]]\n[[Board]]") == nil)
+    meetingSelfTest()
     print("synthetic checks: ok")
 
     // Real note: work on a temp copy, the original is never written.
