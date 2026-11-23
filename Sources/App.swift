@@ -22,12 +22,13 @@ enum Main {
 
 /// Status item + NSPopover. SwiftUI's MenuBarExtra(.window) can't follow a changing content height:
 /// it resizes from the bottom-left corner and leaves transparent gaps. A popover resizes anchored to the icon.
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSPopoverDelegate {
     let store = Store()
     let popover = NSPopover()
     var item: NSStatusItem!
     var sub: AnyCancellable?
     var shownIcon = ""
+    var closedAt = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if hasBundle { UNUserNotificationCenter.current().delegate = self }
@@ -41,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         host.sizingOptions = [.preferredContentSize] // popover follows the SwiftUI content size
         popover.contentViewController = host
         popover.behavior = .transient
+        popover.delegate = self
         popover.animates = false
 
         updateTitle()
@@ -66,12 +68,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func toggle() {
         guard let button = item.button else { return }
         if popover.isShown { popover.performClose(nil); return }
+        // A click on the icon is also a click outside the popover: the transient popover closes itself on
+        // mouse-down, and this action would then reopen it. Treat a click right after that close as "close".
+        if Date().timeIntervalSince(closedAt) < 0.3 { return }
         store.reload()
         store.refreshReminders()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
+
+    func popoverDidClose(_ notification: Notification) { closedAt = Date() }
 
     // Show the banner even though the app counts as "foreground".
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
@@ -106,7 +113,7 @@ final class Store: ObservableObject {
     @Published var sort: Sort {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: "sort") }
     }
-    /// "Комментарий для агента": drafts live here until the task is closed or cancelled, then go into its line.
+    /// L("Комментарий для агента", "Comment for the agent"): drafts live here until the task is closed or cancelled, then go into its line.
     // ponytail: keyed by task title, so editing the task text orphans its draft
     @Published var comments: [String: String] {
         didSet { UserDefaults.standard.set(comments, forKey: "comments") }
@@ -117,6 +124,9 @@ final class Store: ObservableObject {
     /// Collapsed groups of a merged section, by block name.
     @Published var collapsed: Set<String> {
         didSet { UserDefaults.standard.set(Array(collapsed), forKey: "collapsed") }
+    }
+    @Published var lang: String {
+        didSet { UserDefaults.standard.set(lang, forKey: "lang"); appLang = lang; reload(force: true) } // section names are localized at parse time
     }
     @Published var recurring: Bool {
         didSet { UserDefaults.standard.set(recurring, forKey: "recurring") }
@@ -137,6 +147,9 @@ final class Store: ObservableObject {
         comments = UserDefaults.standard.dictionary(forKey: "comments") as? [String: String] ?? [:]
         agentComment = UserDefaults.standard.object(forKey: "agentComment") as? Bool ?? true
         collapsed = Set(UserDefaults.standard.stringArray(forKey: "collapsed") ?? [])
+        let savedLang = UserDefaults.standard.string(forKey: "lang") ?? (Locale.preferredLanguages.first?.hasPrefix("ru") == true ? "ru" : "en")
+        lang = savedLang
+        appLang = savedLang
         recurring = UserDefaults.standard.object(forKey: "recurring") as? Bool ?? true
         trayIcon = UserDefaults.standard.string(forKey: "trayIcon") ?? "scope"
         sort = Sort(rawValue: UserDefaults.standard.string(forKey: "sort") ?? "") ?? .due
@@ -166,7 +179,7 @@ final class Store: ObservableObject {
         mtime = m
         lastDay = today
         guard let text = try? String(contentsOfFile: notePath, encoding: .utf8) else {
-            error = "Не могу прочитать заметку: \(notePath)" // shown once, not on every poll
+            error = L("Не могу прочитать заметку: ", "Can't read the note: ") + notePath // shown once, not on every poll
             return
         }
         (tasks, rawSections) = parseNote(text)
@@ -221,7 +234,7 @@ final class Store: ObservableObject {
         let p = NSOpenPanel()
         p.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         p.canChooseDirectories = false
-        p.message = "Заметка Obsidian с задачами"
+        p.message = L("Заметка Obsidian с задачами", "Obsidian note with tasks")
         if !notePath.isEmpty { p.directoryURL = URL(fileURLWithPath: notePath).deletingLastPathComponent() }
         NSApp.activate(ignoringOtherApps: true)
         if p.runModal() == .OK, let u = p.url { notePath = u.path }
@@ -281,16 +294,16 @@ final class Store: ObservableObject {
     }
 
     func remind(_ t: TaskItem, at date: Date) {
-        guard hasBundle else { error = "Напоминания работают только из собранного .app"; return }
+        guard hasBundle else { error = L("Напоминания работают только из собранного .app", "Reminders only work from the built .app"); return }
         let id = t.title, text = String(rich(t).characters)
         let c = UNUserNotificationCenter.current()
         c.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else {
-                DispatchQueue.main.async { self.error = "Уведомления запрещены: Системные настройки → Уведомления → TaskRadarBar" }
+                DispatchQueue.main.async { self.error = L("Уведомления запрещены: Системные настройки → Уведомления → TaskRadarBar", "Notifications are off: System Settings → Notifications → TaskRadarBar") }
                 return
             }
             let content = UNMutableNotificationContent()
-            content.title = "Радар задач"
+            content.title = L("Радар задач", "Task radar")
             content.body = text
             content.sound = .default
             // interval trigger: fires even if the picked minute has already started
@@ -307,7 +320,7 @@ final class Store: ObservableObject {
 
     /// Gear menu: fires in 5 seconds, to tell an app bug from Focus / notification settings.
     func testNotification() {
-        guard let t = TaskItem.parse("- [ ] Проверка уведомлений TaskRadarBar", line: -1) else { return }
+        guard let t = TaskItem.parse("- [ ] " + L("Проверка уведомлений TaskRadarBar", "TaskRadarBar notification test"), line: -1) else { return }
         remind(t, at: Date().addingTimeInterval(5))
     }
 
@@ -330,7 +343,7 @@ struct ContentView: View {
             if store.searching {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Поиск по задачам раздела", text: $store.query)
+                    TextField(L("Поиск по задачам раздела", "Search tasks in this section"), text: $store.query)
                         .textFieldStyle(.plain)
                         .focused($searchFocused)
                         .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { searchFocused = true } }
@@ -338,7 +351,7 @@ struct ContentView: View {
                     if !store.query.isEmpty {
                         Text("\(store.shown.count)").font(.caption).foregroundStyle(.secondary)
                         Button { store.query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain).foregroundStyle(.secondary).help("Очистить")
+                            .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Очистить", "Clear"))
                     }
                 }
                 .padding(.horizontal, 10)
@@ -357,13 +370,13 @@ struct ContentView: View {
             }
 
             if store.notePath.isEmpty {
-                placeholder("Заметка не выбрана") { Button("Выбрать заметку…") { store.pickNote() } }
+                placeholder(L("Заметка не выбрана", "No note selected")) { Button(L("Выбрать заметку…", "Choose note…")) { store.pickNote() } }
             } else if let e = store.section?.error {
-                placeholder(e + "\nПоправь запрос в заметке или выбери другой раздел.") { EmptyView() }
+                placeholder(e + "\n" + L("Поправь запрос в заметке или выбери другой раздел.", "Fix the query in the note or pick another section.")) { EmptyView() }
             } else if store.visible.isEmpty {
-                placeholder("В этом разделе пусто") { EmptyView() }
+                placeholder(L("В этом разделе пусто", "Nothing in this section")) { EmptyView() }
             } else if store.shown.isEmpty {
-                placeholder("Ничего не найдено") { EmptyView() }
+                placeholder(L("Ничего не найдено", "Nothing found")) { EmptyView() }
             } else {
                 ScrollView {
                     Group {
@@ -414,7 +427,7 @@ struct ContentView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help(folded ? "Развернуть" : "Свернуть")
+                    .help(folded ? L("Развернуть", "Expand") : L("Свернуть", "Collapse"))
                     if folded {
                         Divider()
                     } else {
@@ -439,7 +452,7 @@ struct ContentView: View {
                 .labelsHidden()
             } label: {
                 // meeting blocks are "Heading › 19:30 - Meeting": the button shows the meeting part
-                let name = store.section?.name ?? "Раздел"
+                let name = store.section?.name ?? L("Раздел", "Section")
                 Text("\(name.components(separatedBy: " › ").last ?? name) · \(store.visible.count)")
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -454,7 +467,7 @@ struct ContentView: View {
                     .foregroundStyle(store.searching ? Color.accentColor : Color.primary)
             }
             .buttonStyle(.plain)
-            .help("Поиск")
+            .help(L("Поиск", "Search"))
 
             Menu {
                 Picker("", selection: $store.sort) {
@@ -468,46 +481,50 @@ struct ContentView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Сортировка")
+            .help(L("Сортировка", "Sort"))
 
             Menu {
                 if !store.notePath.isEmpty {
                     Text(URL(fileURLWithPath: store.notePath).deletingPathExtension().lastPathComponent)
-                    Button("Открыть заметку в Obsidian") { store.openNote() }
+                    Button(L("Открыть заметку в Obsidian", "Open note in Obsidian")) { store.openNote() }
                 }
-                Button("Выбрать заметку…") { store.pickNote() }
-                Button("Обновить") { store.reload(force: true); store.refreshReminders() }
+                Button(L("Выбрать заметку…", "Choose note…")) { store.pickNote() }
+                Button(L("Обновить", "Reload")) { store.reload(force: true); store.refreshReminders() }
                 Divider()
-                Toggle("Объединять блоки под одним заголовком", isOn: $store.mergeBlocks)
-                Toggle("Показывать теги под задачей", isOn: $store.showTags)
-                Toggle("Комментарий для агента", isOn: $store.agentComment)
-                Toggle("Повторение задач", isOn: $store.recurring)
-                Picker("Значок в трее", selection: $store.trayIcon) {
-                    Text("Прицел").tag("scope")
-                    Text("Логотип, монохромный").tag("mono")
-                    Text("Логотип, цветной").tag("color")
+                Toggle(L("Объединять блоки под одним заголовком", "Merge blocks under one heading"), isOn: $store.mergeBlocks)
+                Toggle(L("Показывать теги под задачей", "Show tags under the task"), isOn: $store.showTags)
+                Toggle(L("Комментарий для агента", "Comment for the agent"), isOn: $store.agentComment)
+                Toggle(L("Повторение задач", "Task recurrence"), isOn: $store.recurring)
+                Picker(L("Язык", "Language"), selection: $store.lang) {
+                    Text("Русский").tag("ru")
+                    Text("English").tag("en")
                 }
-                Button("Проверить уведомление (через 5 секунд)") { store.testNotification() }
-                Toggle("Запускать при входе", isOn: Binding(
+                Picker(L("Значок в трее", "Menu bar icon"), selection: $store.trayIcon) {
+                    Text(L("Прицел", "Scope")).tag("scope")
+                    Text(L("Логотип, монохромный", "Logo, monochrome")).tag("mono")
+                    Text(L("Логотип, цветной", "Logo, colour")).tag("color")
+                }
+                Button(L("Проверить уведомление (через 5 секунд)", "Test notification (in 5 seconds)")) { store.testNotification() }
+                Toggle(L("Запускать при входе", "Launch at login"), isOn: Binding(
                     get: { SMAppService.mainApp.status == .enabled },
                     set: { on in
                         do { if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }
-                        catch { store.error = "Автозапуск: \(error.localizedDescription)" }
+                        catch { store.error = L("Автозапуск: ", "Launch at login: ") + error.localizedDescription }
                     }))
                 Divider()
                 // The app itself has no network code; updates are a link opened in the browser.
                 if let s = Bundle.main.object(forInfoDictionaryKey: "TRBReleasesURL") as? String, let u = URL(string: s) {
-                    Button("Обновления: страница релизов ↗") { NSWorkspace.shared.open(u) }
+                    Button(L("Обновления: страница релизов ↗", "Updates: releases page ↗")) { NSWorkspace.shared.open(u) }
                 }
-                Text("Версия \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
-                Button("Выйти") { NSApp.terminate(nil) }
+                Text(L("Версия ", "Version ") + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"))
+                Button(L("Выйти", "Quit")) { NSApp.terminate(nil) }
             } label: {
                 Image(systemName: "gearshape").font(.system(size: 16))
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Настройки")
+            .help(L("Настройки", "Settings"))
         }
         .padding(8)
     }
@@ -565,7 +582,7 @@ struct TaskRow: View {
                     .foregroundStyle(prioColor(task.priority))
             }
             .buttonStyle(.plain)
-            .help("Закрыть")
+            .help(L("Закрыть", "Complete"))
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .top, spacing: 4) {
@@ -578,7 +595,7 @@ struct TaskRow: View {
                         .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focused = true } }
                         .onSubmit { store.apply(.text(s.draft), to: task) }
                         .onExitCommand { s.editing = false }
-                    Text("Enter — сохранить, Esc — отмена. Это вся строка: теги, приоритет и даты тоже здесь.")
+                    Text(L("Enter — сохранить, Esc — отмена. Это вся строка: теги, приоритет и даты тоже здесь.", "Enter saves, Esc cancels. This is the whole line: tags, priority and dates are here too."))
                         .font(.caption2).foregroundStyle(.secondary)
                 } else {
                     Text(store.rich(task))
@@ -592,27 +609,28 @@ struct TaskRow: View {
                     ForEach(store.sources(task), id: \.1) { name, url in
                         Button { NSWorkspace.shared.open(url) } label: { icon("arrow.up.right.square") }
                             .buttonStyle(.plain)
-                            .help("Открыть заметку-источник: " + name)
+                            .help(L("Открыть заметку-источник: ", "Open source note: ") + name)
                             .opacity(rest)
                     }
                     if store.sources(task).isEmpty {
                         // no source note in the task: the button opens the note the task lives in
                         Button { store.openNote() } label: { icon("arrow.up.right.square") }
                             .buttonStyle(.plain)
-                            .help("Открыть заметку с задачей: " + URL(fileURLWithPath: store.notePath).deletingPathExtension().lastPathComponent)
+                            .help(L("Открыть заметку с задачей: ", "Open the note with this task: ") + URL(fileURLWithPath: store.notePath).deletingPathExtension().lastPathComponent)
                             .opacity(rest)
                     }
                 }
 
                 HStack(spacing: 0) {
                     Menu {
-                        ForEach(["🔺 Наивысший", "⏫ Высокий", "🔼 Средний", "🔽 Низкий", "⏬ Самый низкий"], id: \.self) { p in
+                        ForEach([L("🔺 Наивысший", "🔺 Highest"), L("⏫ Высокий", "⏫ High"), L("🔼 Средний", "🔼 Medium"),
+                                 L("🔽 Низкий", "🔽 Low"), L("⏬ Самый низкий", "⏬ Lowest")], id: \.self) { p in
                             Button(p) { store.apply(.priority(String(p.prefix(1))), to: task) }
                         }
                         Divider()
-                        Button("Без приоритета") { store.apply(.priority(nil), to: task) }
+                        Button(L("Без приоритета", "No priority")) { store.apply(.priority(nil), to: task) }
                     } label: { icon(task.priority == nil ? "flag" : "flag.fill").foregroundStyle(prioColor(task.priority)) } // outline flag = no priority
-                    .help("Приоритет")
+                    .help(L("Приоритет", "Priority"))
                     if let d = task.due {
                         Button { togglePicker() } label: {
                             HStack(spacing: 0) {
@@ -621,18 +639,18 @@ struct TaskRow: View {
                             }
                             .foregroundStyle(d < day() ? Color.red : d == day() ? Color.orange : Color.secondary)
                         }
-                        .help("Срок: выбрать другой")
+                        .help(L("Срок: выбрать другой", "Due date: pick another"))
                     }
                     if store.reminders.contains(task.title) {
                         Menu {
-                            Button("Перенести: через 1 час") { store.remind(task, at: Date().addingTimeInterval(3600)) }
-                            Button("Перенести: завтра в 10:00") {
+                            Button(L("Перенести: через 1 час", "Move: in 1 hour")) { store.remind(task, at: Date().addingTimeInterval(3600)) }
+                            Button(L("Перенести: завтра в 10:00", "Move: tomorrow at 10:00")) {
                                 store.remind(task, at: Calendar.current.date(bySettingHour: 10, minute: 0, second: 0, of: addDays(1))!)
                             }
                             Divider()
-                            Button("Убрать напоминание") { store.unremind(task) }
+                            Button(L("Убрать напоминание", "Remove reminder")) { store.unremind(task) }
                         } label: { icon("bell.fill").foregroundStyle(.orange) }
-                        .help("Напоминание")
+                        .help(L("Напоминание", "Reminder"))
                     }
                     if store.agentComment {
                         let has = !(store.comments[task.title] ?? "").trimmed.isEmpty
@@ -643,17 +661,17 @@ struct TaskRow: View {
                         } label: {
                             icon(has ? "text.bubble.fill" : "text.bubble").foregroundStyle(has ? Color.orange : Color.primary)
                         }
-                        .help(has ? (store.comments[task.title] ?? "") : "Комментарий для агента")
+                        .help(has ? (store.comments[task.title] ?? "") : L("Комментарий для агента", "Comment for the agent"))
                     }
                     if store.showTags {
                         let tags = Text(task.tags.joined(separator: " ")).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                         if task.hasRadarTag {
                             Menu {
-                                Button("Обычная задача") { store.apply(.subtag(""), to: task) }
-                                Button("ask: ждёт решения от меня") { store.apply(.subtag("/ask"), to: task) }
-                                Button("wait: висит на других") { store.apply(.subtag("/wait"), to: task) }
+                                Button(L("Обычная задача", "Regular task")) { store.apply(.subtag(""), to: task) }
+                                Button(L("ask: ждёт решения от меня", "ask: waiting for my decision")) { store.apply(.subtag("/ask"), to: task) }
+                                Button(L("wait: висит на других", "wait: blocked on others")) { store.apply(.subtag("/wait"), to: task) }
                             } label: { tags.padding(.leading, 4).frame(height: 26).contentShape(Rectangle()) }
-                            .help("Тип задачи")
+                            .help(L("Тип задачи", "Task type"))
                         } else {
                             tags.padding(.leading, 4)
                         }
@@ -672,10 +690,10 @@ struct TaskRow: View {
                         .datePickerStyle(.graphical)
                         .labelsHidden()
                     HStack {
-                        Button("Без срока") { store.apply(.due(nil), to: task) }
+                        Button(L("Без срока", "No due date")) { store.apply(.due(nil), to: task) }
                         Spacer()
-                        Button("Отмена") { s.picking = false }
-                        Button("Перенести") { store.apply(.due(day(s.pickDate)), to: task) }.keyboardShortcut(.defaultAction)
+                        Button(L("Отмена", "Cancel")) { s.picking = false }
+                        Button(L("Перенести", "Move")) { store.apply(.due(day(s.pickDate)), to: task) }.keyboardShortcut(.defaultAction)
                     }
                 }
                 if s.expanded { panel }
@@ -689,18 +707,18 @@ struct TaskRow: View {
 
     var actions: some View {
         HStack(spacing: 0) {
-            Button { s.draft = task.body; s.editing = true } label: { icon("pencil") }.help("Редактировать")
-            Button { store.apply(.due(day(addDays(1))), to: task) } label: { icon("sunrise") }.help("Перенести на завтра")
+            Button { s.draft = task.body; s.editing = true } label: { icon("pencil") }.help(L("Редактировать", "Edit"))
+            Button { store.apply(.due(day(addDays(1))), to: task) } label: { icon("sunrise") }.help(L("Перенести на завтра", "Move to tomorrow"))
             if store.recurring {
                 Button { s.expanded.toggle() } label: {
                     icon("repeat").foregroundStyle(task.recurrence != nil ? Color.orange : Color.primary)
                 }
-                .help(task.recurrence.map { "Повтор: " + $0 } ?? "Повторение")
+                .help(task.recurrence.map { L("Повтор: ", "Repeats: ") + $0 } ?? L("Повторение", "Recurrence"))
             }
-            Button { togglePicker() } label: { icon("calendar") }.help("Выбрать срок")
+            Button { togglePicker() } label: { icon("calendar") }.help(L("Выбрать срок", "Pick due date"))
             Button { s.expanded.toggle() } label: {
                 icon(s.expanded ? "chevron.up" : "ellipsis")
-            }.help("Приоритет, тип, напоминание, отмена")
+            }.help(L("Приоритет, тип, напоминание, отмена", "Priority, type, reminder, cancel"))
         }
         .buttonStyle(.plain)
     }
@@ -724,8 +742,8 @@ struct TaskRow: View {
         let hasReminder = store.reminders.contains(task.title)
         return VStack(alignment: .leading, spacing: 6) {
             if store.agentComment {
-                line("Комментарий") {
-                    TextField("для агента: запишется в задачу при закрытии или отмене", text: Binding(
+                line(L("Комментарий", "Comment")) {
+                    TextField(L("для агента: запишется в задачу при закрытии или отмене", "for the agent: written into the task when it is completed or cancelled"), text: Binding(
                         get: { store.comments[task.title] ?? "" },
                         set: { store.comments[task.title] = $0.isEmpty ? nil : $0 }), axis: .vertical)
                         .textFieldStyle(.roundedBorder)
@@ -735,52 +753,52 @@ struct TaskRow: View {
                 }
             }
             if store.recurring {
-                line("Повтор") {
-                    ForEach([("нет", ""), ("день", "every day"), ("будни", "every weekday"), ("неделя", "every week"),
-                             ("2 недели", "every 2 weeks"), ("месяц", "every month"), ("год", "every year")], id: \.1) { label, rule in
+                line(L("Повтор", "Repeat")) {
+                    ForEach([(L("нет", "none"), ""), (L("день", "day"), "every day"), (L("будни", "weekdays"), "every weekday"), (L("неделя", "week"), "every week"),
+                             (L("2 недели", "2 weeks"), "every 2 weeks"), (L("месяц", "month"), "every month"), (L("год", "year"), "every year")], id: \.1) { label, rule in
                         chip(label, active: (task.recurrence ?? "") == rule) {
                             store.apply(.recurrence(rule.isEmpty ? nil : rule), to: task)
                         }
                     }
                 }
             }
-            line("Приоритет") {
+            line(L("Приоритет", "Priority")) {
                 ForEach(["🔺", "⏫", "🔼", "", "🔽", "⏬"], id: \.self) { p in
-                    chip(p.isEmpty ? "нет" : p, active: (task.priority ?? "") == p) {
+                    chip(p.isEmpty ? L("нет", "none") : p, active: (task.priority ?? "") == p) {
                         store.apply(.priority(p.isEmpty ? nil : p), to: task)
                     }
                 }
             }
             if task.hasRadarTag {
-                line("Тип") {
-                    chip("обычная", active: kind == "") { store.apply(.subtag(""), to: task) }
-                    chip("ask: жду решения я", active: kind == "/ask") { store.apply(.subtag("/ask"), to: task) }
-                    chip("wait: висит на других", active: kind == "/wait") { store.apply(.subtag("/wait"), to: task) }
+                line(L("Тип", "Type")) {
+                    chip(L("обычная", "regular"), active: kind == "") { store.apply(.subtag(""), to: task) }
+                    chip(L("ask: жду решения я", "ask: my decision"), active: kind == "/ask") { store.apply(.subtag("/ask"), to: task) }
+                    chip(L("wait: висит на других", "wait: blocked on others"), active: kind == "/wait") { store.apply(.subtag("/wait"), to: task) }
                 }
             }
-            line("Напомнить") {
-                chip("через 1 ч", active: false) { store.remind(task, at: Date().addingTimeInterval(3600)); s.expanded = false }
-                chip("завтра 10:00", active: false) {
+            line(L("Напомнить", "Remind")) {
+                chip(L("через 1 ч", "in 1 h"), active: false) { store.remind(task, at: Date().addingTimeInterval(3600)); s.expanded = false }
+                chip(L("завтра 10:00", "tomorrow 10:00"), active: false) {
                     store.remind(task, at: Calendar.current.date(bySettingHour: 10, minute: 0, second: 0, of: addDays(1))!)
                     s.expanded = false
                 }
-                chip("своё…", active: s.reminding) { s.remindAt = Date().addingTimeInterval(3600); s.reminding.toggle() }
-                if hasReminder { chip("убрать 🔔", active: false) { store.unremind(task) } }
+                chip(L("своё…", "custom…"), active: s.reminding) { s.remindAt = Date().addingTimeInterval(3600); s.reminding.toggle() }
+                if hasReminder { chip(L("убрать 🔔", "remove 🔔"), active: false) { store.unremind(task) } }
             }
             if s.reminding {
                 HStack {
                     DatePicker("", selection: $s.remindAt, in: Date()..., displayedComponents: [.date, .hourAndMinute])
                         .datePickerStyle(.stepperField)
                         .labelsHidden()
-                    Button("Напомнить") { store.remind(task, at: s.remindAt); s.reminding = false; s.expanded = false }
+                    Button(L("Напомнить", "Remind")) { store.remind(task, at: s.remindAt); s.reminding = false; s.expanded = false }
                         .keyboardShortcut(.defaultAction)
                 }
                 .padding(.leading, 78)
             }
             HStack {
-                Button("Отменить задачу") { store.apply(.cancel, to: task) }
+                Button(L("Отменить задачу", "Cancel task")) { store.apply(.cancel, to: task) }
                 Spacer()
-                Button("Заметка в Obsidian ↗") { store.openNote() }
+                Button(L("Заметка в Obsidian ↗", "Note in Obsidian ↗")) { store.openNote() }
             }
         }
         .padding(8)

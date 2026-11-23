@@ -30,6 +30,13 @@ func sub(_ s: String, _ pattern: String, _ with: String = "") -> String {
     s.replacingOccurrences(of: pattern, with: NSRegularExpression.escapedTemplate(for: with), options: .regularExpression)
 }
 
+// MARK: - UI language
+
+/// "ru" or "en"; set by the Store from the user's setting.
+var appLang = "ru"
+/// Both texts sit next to each other at the call site, no string tables.
+func L(_ ru: String, _ en: String) -> String { appLang == "en" ? en : ru }
+
 extension String {
     var trimmed: String { trimmingCharacters(in: .whitespaces) }
 }
@@ -216,14 +223,15 @@ func patchFile(_ notePath: String, _ t: TaskItem, _ e: Edit, comment: String? = 
     case .done:
         if let rule = t.recurrence {
             guard let n = nextOccurrence(t) else {
-                throw Fail(msg: "Правило повторения «\(rule)» приложение не понимает. Закрой эту задачу в Obsidian, иначе следующее повторение не создастся.")
+                throw Fail(msg: L("Правило повторения «\(rule)» приложение не понимает. Закрой эту задачу в Obsidian, иначе следующее повторение не создастся.",
+                                  "The app doesn't understand the recurrence rule “\(rule)”. Complete this task in Obsidian, otherwise the next occurrence won't be created."))
             }
             next = n
         } else if t.body.contains("🔁") {
-            throw Fail(msg: "Не разобрал правило повторения. Закрой эту задачу в Obsidian.")
+            throw Fail(msg: L("Не разобрал правило повторения. Закрой эту задачу в Obsidian.", "Couldn't parse the recurrence rule. Complete this task in Obsidian."))
         }
     case .text(let s):
-        if oneLine(s).isEmpty { throw Fail(msg: "Пустой текст задачи не сохраняю.") }
+        if oneLine(s).isEmpty { throw Fail(msg: L("Пустой текст задачи не сохраняю.", "Empty task text is not saved.")) }
     default: break
     }
     // An atomic write replaces the file at the path; if the note is a symlink, write to its target, not over the link.
@@ -231,14 +239,14 @@ func patchFile(_ notePath: String, _ t: TaskItem, _ e: Edit, comment: String? = 
     let text = try String(contentsOfFile: path, encoding: .utf8)
     var (lines, nl) = splitLines(text)
     guard let i = lines.indices.filter({ lines[$0] == t.raw }).min(by: { abs($0 - t.line) < abs($1 - t.line) }) else {
-        throw Fail(msg: "Строка задачи изменилась в заметке. Список обновлён, повтори действие.")
+        throw Fail(msg: L("Строка задачи изменилась в заметке. Список обновлён, повтори действие.", "The task line changed in the note. The list is refreshed, try again."))
     }
     lines[i] = edit(e, t, comment: comment)
     if let next { lines.insert(next, at: i) } // above the closed one, as Tasks does by default
     let out = lines.joined(separator: nl)
     try out.write(toFile: path, atomically: true, encoding: .utf8)
     guard try String(contentsOfFile: path, encoding: .utf8) == out else {
-        throw Fail(msg: "Запись не подтвердилась, проверь заметку.")
+        throw Fail(msg: L("Запись не подтвердилась, проверь заметку.", "The write could not be verified, check the note."))
     }
 }
 
@@ -271,9 +279,9 @@ enum Sort: String, CaseIterable {
     case due, priority, file
     var title: String {
         switch self {
-        case .due: return "По сроку: старые сверху"   // no due date goes last, in file order
-        case .priority: return "По приоритету, затем по сроку"
-        case .file: return "Как в заметке"
+        case .due: return L("По сроку: старые сверху", "By due date: oldest first")   // no due date goes last, in file order
+        case .priority: return L("По приоритету, затем по сроку", "By priority, then due date")
+        case .file: return L("Как в заметке", "As in the note")
         }
     }
 }
@@ -370,14 +378,14 @@ func makeSection(_ name: String, _ query: [String], _ now: Date) -> Section {
         let l = q.lowercased().trimmed
         if l.isEmpty || ignored.contains(where: l.hasPrefix) { continue }
         if let g = groups("^limit (?:to )?(\\d+)", l) { limit = Int(g[1]); continue }
-        if let p = parseExpr(q, now) { preds.append(p) } else if error == nil { error = "Не понял строку запроса: «\(q.trimmed)»" }
+        if let p = parseExpr(q, now) { preds.append(p) } else if error == nil { error = L("Не понял строку запроса: «\(q.trimmed)»", "Can't parse the query line: “\(q.trimmed)”") }
     }
     return Section(name: name, preds: preds, limit: limit, error: error)
 }
 
 func parseNote(_ text: String, now: Date = Date()) -> ([TaskItem], [Section]) {
     var tasks: [TaskItem] = [], sections: [Section] = []
-    var heading = "Задачи", sub2: String?, query: [String]?, inFence = false
+    var heading = L("Задачи", "Tasks"), sub2: String?, query: [String]?, inFence = false
     for (i, raw) in splitLines(text).0.enumerated() {
         let line = raw.trimmed
         if query != nil {
@@ -403,7 +411,7 @@ func parseNote(_ text: String, now: Date = Date()) -> ([TaskItem], [Section]) {
         if let g = groups("^\\*\\*(.+)\\*\\*$", line) { sub2 = g[1]; continue } // e.g. per-meeting blocks
         if let t = TaskItem.parse(raw, line: i) { tasks.append(t) }
     }
-    sections.append(Section(name: "Все открытые", preds: [{ $0.isOpen }], limit: nil, error: nil))
+    sections.append(Section(name: L("Все открытые", "All open"), preds: [{ $0.isOpen }], limit: nil, error: nil))
     return (tasks, sections)
 }
 
@@ -432,6 +440,7 @@ func mergeSections(_ sections: [Section]) -> [Section] {
 // MARK: - Self-check: `taskradarbar --selftest [path-to-note]`
 
 func selfTest() {
+    appLang = "ru" // expected strings below are Russian
     func eq(_ a: String, _ b: String) { precondition(a == b, "\n got: \(a)\nwant: \(b)") }
     let now = dayFmt.date(from: "2026-11-23")! // Monday
     let note = """
