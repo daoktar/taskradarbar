@@ -87,7 +87,11 @@ var hasBundle: Bool { Bundle.main.bundleIdentifier != nil }
 
 final class Store: ObservableObject {
     @Published var tasks: [TaskItem] = []
-    @Published var sections: [Section] = []
+    @Published var rawSections: [Section] = []
+    @Published var mergeBlocks: Bool {
+        didSet { UserDefaults.standard.set(mergeBlocks, forKey: "mergeBlocks") }
+    }
+    var sections: [Section] { mergeBlocks ? mergeSections(rawSections) : rawSections }
     @Published var error: String?
     @Published var reminders: Set<String> = []
     @Published var notePath: String {
@@ -114,6 +118,7 @@ final class Store: ObservableObject {
         notePath = UserDefaults.standard.string(forKey: "notePath") ?? ""
         sectionName = UserDefaults.standard.string(forKey: "section") ?? ""
         showTags = UserDefaults.standard.object(forKey: "showTags") as? Bool ?? true
+        mergeBlocks = UserDefaults.standard.object(forKey: "mergeBlocks") as? Bool ?? true
         trayIcon = UserDefaults.standard.string(forKey: "trayIcon") ?? "scope"
         sort = Sort(rawValue: UserDefaults.standard.string(forKey: "sort") ?? "") ?? .due
         reload()
@@ -126,7 +131,7 @@ final class Store: ObservableObject {
     var visible: [TaskItem] { section?.select(tasks, sort: sort) ?? [] }
 
     func reload(force: Bool = false) {
-        guard !notePath.isEmpty else { tasks = []; sections = []; return }
+        guard !notePath.isEmpty else { tasks = []; rawSections = []; return }
         let m = (try? FileManager.default.attributesOfItem(atPath: notePath))?[.modificationDate] as? Date
         let today = day() // "today"/"tomorrow" in queries must roll over at midnight
         guard force || m != mtime || today != lastDay else { return }
@@ -136,7 +141,7 @@ final class Store: ObservableObject {
         }
         mtime = m
         lastDay = today
-        (tasks, sections) = parseNote(text)
+        (tasks, rawSections) = parseNote(text)
     }
 
     func apply(_ e: Edit, to t: TaskItem) {
@@ -320,7 +325,20 @@ struct ContentView: View {
     }
 
     @ViewBuilder var taskRows: some View {
-        ForEach(store.visible) { t in TaskRow(task: t); Divider() }
+        if let sec = store.section, !sec.children.isEmpty {
+            // merged section: one group per original block, e.g. per meeting
+            ForEach(sec.children) { c in
+                let items = c.select(store.tasks, sort: store.sort)
+                if !items.isEmpty {
+                    Text(c.sub ?? c.name)
+                        .font(.callout).fontWeight(.semibold).foregroundStyle(.secondary)
+                        .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 2)
+                    ForEach(items) { t in TaskRow(task: t); Divider() }
+                }
+            }
+        } else {
+            ForEach(store.visible) { t in TaskRow(task: t); Divider() }
+        }
     }
 
     var header: some View {
@@ -364,6 +382,7 @@ struct ContentView: View {
                 Button("Выбрать заметку…") { store.pickNote() }
                 Button("Обновить") { store.reload(force: true); store.refreshReminders() }
                 Divider()
+                Toggle("Объединять блоки под одним заголовком", isOn: $store.mergeBlocks)
                 Toggle("Показывать теги под задачей", isOn: $store.showTags)
                 Picker("Значок в трее", selection: $store.trayIcon) {
                     Text("Прицел").tag("scope")

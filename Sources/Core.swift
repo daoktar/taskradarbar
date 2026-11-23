@@ -165,10 +165,13 @@ func patchFile(_ path: String, _ t: TaskItem, _ e: Edit) throws {
 typealias Pred = (TaskItem) -> Bool
 
 struct Section: Identifiable {
-    let name: String
-    let preds: [Pred]
-    let limit: Int?
-    let error: String?
+    var name: String
+    var preds: [Pred]
+    var limit: Int?
+    var error: String?
+    var heading = ""          // markdown heading the block sits under
+    var sub: String?          // bold label right above the block, e.g. a meeting
+    var children: [Section] = []  // filled only for merged sections
     var id: String { name }
 
     func select(_ tasks: [TaskItem], sort: Sort = .due) -> [TaskItem] {
@@ -299,7 +302,10 @@ func parseNote(_ text: String, now: Date = Date()) -> ([TaskItem], [Section]) {
             if line.hasPrefix("```") {
                 let label = sub2.map { heading + " › " + $0 } ?? heading
                 let n = sections.filter { $0.name == label || $0.name.hasPrefix(label + " (") }.count
-                sections.append(makeSection(n == 0 ? label : "\(label) (\(n + 1))", query!, now))
+                var sec = makeSection(n == 0 ? label : "\(label) (\(n + 1))", query!, now)
+                sec.heading = heading
+                sec.sub = sub2
+                sections.append(sec)
                 query = nil
             } else {
                 query!.append(line)
@@ -317,6 +323,28 @@ func parseNote(_ text: String, now: Date = Date()) -> ([TaskItem], [Section]) {
     }
     sections.append(Section(name: "Все открытые", preds: [{ $0.isOpen }], limit: nil, error: nil))
     return (tasks, sections)
+}
+
+/// Blocks that share a heading and differ only by their bold label (per-meeting blocks) become one section:
+/// a task is in it if it matches any of the blocks. The blocks stay in `children` for group headers.
+func mergeSections(_ sections: [Section]) -> [Section] {
+    var out: [Section] = []
+    for s in sections {
+        if s.sub == nil { out.append(s); continue }
+        if let i = out.firstIndex(where: { !$0.children.isEmpty && $0.heading == s.heading }) {
+            out[i].children.append(s)
+        } else {
+            out.append(Section(name: s.heading, preds: [], limit: nil, error: nil, heading: s.heading, sub: nil, children: [s]))
+        }
+    }
+    return out.map { m in
+        guard !m.children.isEmpty else { return m }
+        let kids = m.children
+        var r = m
+        r.preds = [{ t in kids.contains { k in k.preds.allSatisfy { $0(t) } } }]
+        r.error = kids.compactMap(\.error).first
+        return r
+    }
 }
 
 // MARK: - Self-check: `taskradarbar --selftest [path-to-note]`
@@ -379,6 +407,25 @@ func selfTest() {
     eq(edit(.subtag("/wait"), a), "- [ ] a [[note|n]] #mod/radar/wait 🔺 📅 2026-11-23")
     eq(edit(.subtag(""), b), "- [ ] b #mod/radar 📅 2026-11-23")
     eq(edit(.text("new text 📅 2026-12-01"), a), "- [ ] new text 📅 2026-12-01")
+    let (mt, ms) = parseNote("""
+    ## Встречи
+    **10:00 - A**
+    ```tasks
+    tag includes #t1
+    ```
+    **11:00 - B**
+    ```tasks
+    tag includes #t2
+    ```
+    - [ ] one #t1
+    - [ ] two #t2
+    - [ ] both #t1 #t2
+    - [ ] none
+    """, now: now)
+    let merged = mergeSections(ms)
+    eq(ms.map(\.name).joined(separator: ","), "Встречи › 10:00 - A,Встречи › 11:00 - B,Все открытые")
+    eq(merged.map(\.name).joined(separator: ","), "Встречи,Все открытые")
+    precondition(merged[0].children.count == 2 && merged[0].select(mt).count == 3)
     print("synthetic checks: ok")
 
     // Real note: work on a temp copy, the original is never written.
