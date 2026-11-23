@@ -114,6 +114,10 @@ final class Store: ObservableObject {
     @Published var agentComment: Bool {
         didSet { UserDefaults.standard.set(agentComment, forKey: "agentComment") }
     }
+    /// Collapsed groups of a merged section, by block name.
+    @Published var collapsed: Set<String> {
+        didSet { UserDefaults.standard.set(Array(collapsed), forKey: "collapsed") }
+    }
     @Published var recurring: Bool {
         didSet { UserDefaults.standard.set(recurring, forKey: "recurring") }
     }
@@ -132,6 +136,7 @@ final class Store: ObservableObject {
         mergeBlocks = UserDefaults.standard.object(forKey: "mergeBlocks") as? Bool ?? true
         comments = UserDefaults.standard.dictionary(forKey: "comments") as? [String: String] ?? [:]
         agentComment = UserDefaults.standard.object(forKey: "agentComment") as? Bool ?? true
+        collapsed = Set(UserDefaults.standard.stringArray(forKey: "collapsed") ?? [])
         recurring = UserDefaults.standard.object(forKey: "recurring") as? Bool ?? true
         trayIcon = UserDefaults.standard.string(forKey: "trayIcon") ?? "scope"
         sort = Sort(rawValue: UserDefaults.standard.string(forKey: "sort") ?? "") ?? .due
@@ -386,10 +391,35 @@ struct ContentView: View {
             ForEach(sec.children) { c in
                 let items = c.select(store.tasks, sort: store.sort).filter(store.matches)
                 if !items.isEmpty {
-                    Text(c.sub ?? c.name)
-                        .font(.callout).fontWeight(.semibold).foregroundStyle(.secondary)
-                        .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 2)
-                    ForEach(items) { t in TaskRow(task: t); Divider() }
+                    // group header: a full-width band; click folds the group. Search shows matches even in folded groups.
+                    let folded = store.collapsed.contains(c.name) && !(store.searching && !store.query.trimmed.isEmpty)
+                    // the count takes the colour of the group's top priority, same palette as the task flags
+                    let top = items.min { prioRank($0.priority) < prioRank($1.priority) }?.priority
+                    Button {
+                        if store.collapsed.contains(c.name) { store.collapsed.remove(c.name) } else { store.collapsed.insert(c.name) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: folded ? "chevron.right" : "chevron.down")
+                                .font(.system(size: 12, weight: .semibold)).frame(width: 14)
+                            Text(c.sub ?? c.name).fontWeight(.semibold).lineLimit(1)
+                            Spacer()
+                            Text("\(items.count)")
+                                .fontWeight(prioRank(top) < 3 ? .bold : .regular)
+                                .foregroundStyle(prioColor(top))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.primary.opacity(0.08))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(folded ? "Развернуть" : "Свернуть")
+                    if folded {
+                        Divider()
+                    } else {
+                        ForEach(items) { t in TaskRow(task: t); Divider() }
+                    }
                 }
             }
         } else {
