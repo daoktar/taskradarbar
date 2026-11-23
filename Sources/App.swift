@@ -106,6 +106,14 @@ final class Store: ObservableObject {
     @Published var sort: Sort {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: "sort") }
     }
+    /// "Комментарий для агента": drafts live here until the task is closed or cancelled, then go into its line.
+    // ponytail: keyed by task title, so editing the task text orphans its draft
+    @Published var comments: [String: String] {
+        didSet { UserDefaults.standard.set(comments, forKey: "comments") }
+    }
+    @Published var agentComment: Bool {
+        didSet { UserDefaults.standard.set(agentComment, forKey: "agentComment") }
+    }
     @Published var trayIcon: String {
         didSet { UserDefaults.standard.set(trayIcon, forKey: "trayIcon") }
     }
@@ -119,6 +127,8 @@ final class Store: ObservableObject {
         sectionName = UserDefaults.standard.string(forKey: "section") ?? ""
         showTags = UserDefaults.standard.object(forKey: "showTags") as? Bool ?? true
         mergeBlocks = UserDefaults.standard.object(forKey: "mergeBlocks") as? Bool ?? true
+        comments = UserDefaults.standard.dictionary(forKey: "comments") as? [String: String] ?? [:]
+        agentComment = UserDefaults.standard.object(forKey: "agentComment") as? Bool ?? true
         trayIcon = UserDefaults.standard.string(forKey: "trayIcon") ?? "scope"
         sort = Sort(rawValue: UserDefaults.standard.string(forKey: "sort") ?? "") ?? .due
         reload()
@@ -155,7 +165,13 @@ final class Store: ObservableObject {
 
     func apply(_ e: Edit, to t: TaskItem) {
         do {
-            try patchFile(notePath, t, e)
+            var comment: String?
+            switch e {
+            case .done, .cancel: comment = agentComment ? comments[t.title] : nil
+            default: break
+            }
+            try patchFile(notePath, t, e, comment: comment)
+            if comment != nil { comments[t.title] = nil }
             error = nil
             switch e {
             case .done, .cancel, .text: unremind(t)
@@ -423,6 +439,7 @@ struct ContentView: View {
                 Divider()
                 Toggle("Объединять блоки под одним заголовком", isOn: $store.mergeBlocks)
                 Toggle("Показывать теги под задачей", isOn: $store.showTags)
+                Toggle("Комментарий для агента", isOn: $store.agentComment)
                 Picker("Значок в трее", selection: $store.trayIcon) {
                     Text("Прицел").tag("scope")
                     Text("Логотип, монохромный").tag("mono")
@@ -492,6 +509,7 @@ struct TaskRow: View {
     @EnvironmentObject var store: Store
     @StateObject private var s = RowState()
     @FocusState private var focused: Bool
+    @FocusState private var commentFocused: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -553,6 +571,19 @@ struct TaskRow: View {
                     ForEach(store.sources(task), id: \.1) { name, url in
                         Button { NSWorkspace.shared.open(url) } label: { icon("doc.text") }
                             .help("Открыть заметку-источник: " + name)
+                            .opacity(rest)
+                    }
+                    if store.agentComment {
+                        let has = !(store.comments[task.title] ?? "").trimmed.isEmpty
+                        Button {
+                            // the draft is saved on every keystroke, so closing the panel loses nothing
+                            s.expanded.toggle()
+                            if s.expanded { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { commentFocused = true } }
+                        } label: {
+                            icon(has ? "text.bubble.fill" : "text.bubble").foregroundStyle(has ? Color.orange : Color.primary)
+                        }
+                        .help(has ? (store.comments[task.title] ?? "") : "Комментарий для агента")
+                        .opacity(has ? 1 : rest) // a written comment is status, stays bright
                     }
                     if store.showTags {
                         let tags = Text(task.tags.joined(separator: " ")).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
@@ -563,12 +594,13 @@ struct TaskRow: View {
                                 Button("wait: висит на других") { store.apply(.subtag("/wait"), to: task) }
                             } label: { tags.padding(.leading, 4).frame(height: 26).contentShape(Rectangle()) }
                             .help("Тип задачи")
+                            .opacity(rest * 1.4)
                         } else {
-                            tags.padding(.leading, 4)
+                            tags.padding(.leading, 4).opacity(rest * 1.4)
                         }
                     }
                     Spacer(minLength: 0)
-                    actions.opacity(s.hover || s.expanded || s.picking ? 1 : 0.55)
+                    actions.opacity(rest)
                 }
                 .buttonStyle(.plain)
                 .menuStyle(.button)
@@ -607,6 +639,9 @@ struct TaskRow: View {
         .buttonStyle(.plain)
     }
 
+    /// Everything except status (flag, due date, bell, written comment) is dimmed until the row is hovered.
+    var rest: Double { s.hover || s.expanded || s.picking ? 1 : 0.55 }
+
     /// The one icon size for the whole row: status icons on the left and actions on the right.
     func icon(_ name: String) -> some View {
         Image(systemName: name).font(.system(size: 16)).frame(width: 28, height: 26).contentShape(Rectangle())
@@ -622,6 +657,17 @@ struct TaskRow: View {
         let kind = task.tags.contains("#mod/radar/ask") ? "/ask" : task.tags.contains("#mod/radar/wait") ? "/wait" : ""
         let hasReminder = store.reminders.contains(task.title)
         return VStack(alignment: .leading, spacing: 6) {
+            if store.agentComment {
+                line("Комментарий") {
+                    TextField("для агента: запишется в задачу при закрытии или отмене", text: Binding(
+                        get: { store.comments[task.title] ?? "" },
+                        set: { store.comments[task.title] = $0.isEmpty ? nil : $0 }), axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...3)
+                        .focused($commentFocused)
+                        .onSubmit { s.expanded = false }
+                }
+            }
             line("Приоритет") {
                 ForEach(["🔺", "⏫", "🔼", "", "🔽", "⏬"], id: \.self) { p in
                     chip(p.isEmpty ? "нет" : p, active: (task.priority ?? "") == p) {

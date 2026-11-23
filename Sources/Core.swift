@@ -102,7 +102,19 @@ func insertMeta(_ body: String, _ tok: String) -> String {
     return appendToken(body, tok)
 }
 
-func edit(_ e: Edit, _ t: TaskItem, today: String = day()) -> String {
+/// Trailing run of tags / priority / dates / block id. A comment must go before it:
+/// the Tasks plugin only reads metadata from the end of the line.
+let trailingMetaRe = "(?:\\s+(?:#[^\\s#]+|" + prioRe + "|" + metaDateRe + "|\\^[A-Za-z0-9-]+))*\\s*$"
+
+func insertComment(_ body: String, _ comment: String) -> String {
+    let text = comment.replacingOccurrences(of: "\n", with: " ").trimmed
+    guard !text.isEmpty else { return body }
+    let r = body.range(of: trailingMetaRe, options: .regularExpression) ?? body.endIndex..<body.endIndex
+    return body[..<r.lowerBound] + " 💬 " + text + body[r]
+}
+
+/// `comment` is written into the line only together with a status change (done / cancel).
+func edit(_ e: Edit, _ t: TaskItem, today: String = day(), comment: String? = nil) -> String {
     var status = t.status
     var body = t.body
     switch e {
@@ -110,6 +122,7 @@ func edit(_ e: Edit, _ t: TaskItem, today: String = day()) -> String {
         let isDone: Bool = { if case .done = e { return true } else { return false } }()
         status = isDone ? "x" : "-"
         body = appendToken(sub(body, "\\s*[✅❌]\\uFE0F? *" + dateRe), (isDone ? "✅ " : "❌ ") + today)
+        if let comment { body = insertComment(body, comment) }
     case .due(let d):
         let re = "📅\\uFE0F? *" + dateRe
         if let d {
@@ -146,13 +159,13 @@ func splitLines(_ text: String) -> ([String], String) {
 
 /// Re-reads the file, finds the task by exact line text (nearest to its old position),
 /// replaces only that line, writes atomically and verifies.
-func patchFile(_ path: String, _ t: TaskItem, _ e: Edit) throws {
+func patchFile(_ path: String, _ t: TaskItem, _ e: Edit, comment: String? = nil) throws {
     let text = try String(contentsOfFile: path, encoding: .utf8)
     var (lines, nl) = splitLines(text)
     guard let i = lines.indices.filter({ lines[$0] == t.raw }).min(by: { abs($0 - t.line) < abs($1 - t.line) }) else {
         throw Fail(msg: "Строка задачи изменилась в заметке. Список обновлён, повтори действие.")
     }
-    lines[i] = edit(e, t)
+    lines[i] = edit(e, t, comment: comment)
     let out = lines.joined(separator: nl)
     try out.write(toFile: path, atomically: true, encoding: .utf8)
     guard try String(contentsOfFile: path, encoding: .utf8) == out else {
@@ -407,6 +420,10 @@ func selfTest() {
     eq(edit(.subtag("/wait"), a), "- [ ] a [[note|n]] #mod/radar/wait 🔺 📅 2026-11-23")
     eq(edit(.subtag(""), b), "- [ ] b #mod/radar 📅 2026-11-23")
     eq(edit(.text("new text 📅 2026-12-01"), a), "- [ ] new text 📅 2026-12-01")
+    eq(edit(.done, a, today: td, comment: "сделал, см. тред"), "- [x] a [[note|n]] 💬 сделал, см. тред #mod/radar 🔺 📅 2026-11-23 ✅ 2026-11-23")
+    eq(edit(.cancel, g, today: td, comment: "неактуально"), "- [-] g 💬 неактуально ❌ 2026-11-23 ^abc")
+    eq(edit(.due("2026-11-24"), f, comment: "ignored"), "- [ ] f #mod/radar 📅 2026-11-24")
+    precondition(TaskItem.parse(edit(.done, a, today: td, comment: "c"), line: 0)?.due == "2026-11-23")
     let (mt, ms) = parseNote("""
     ## Встречи
     **10:00 - A**
