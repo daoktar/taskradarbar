@@ -611,6 +611,7 @@ struct TaskRow: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 } else {
                     Text(store.rich(task))
+                        .foregroundStyle(Color(nsColor: .textColor)) // pure black / white: label colour is ~85% and looks grey in a popover
                         .lineLimit(3) // full text: hover tooltip or the pencil
                         .fixedSize(horizontal: false, vertical: true)
                         .help(task.title)
@@ -652,17 +653,6 @@ struct TaskRow: View {
                             .foregroundStyle(d < day() ? Color.red : d == day() ? Color.orange : Color.secondary)
                         }
                         .help(L("Срок: выбрать другой", "Due date: pick another"))
-                    }
-                    if store.reminders.contains(task.title) {
-                        Menu {
-                            Button(L("Перенести: через 1 час", "Move: in 1 hour")) { store.remind(task, at: Date().addingTimeInterval(3600)) }
-                            Button(L("Перенести: завтра в 10:00", "Move: tomorrow at 10:00")) {
-                                store.remind(task, at: Calendar.current.date(bySettingHour: 10, minute: 0, second: 0, of: addDays(1))!)
-                            }
-                            Divider()
-                            Button(L("Убрать напоминание", "Remove reminder")) { store.unremind(task) }
-                        } label: { icon("bell.fill").foregroundStyle(.orange) }
-                        .help(L("Напоминание", "Reminder"))
                     }
                     if store.agentComment {
                         let has = !(store.comments[task.title] ?? "").trimmed.isEmpty
@@ -728,6 +718,24 @@ struct TaskRow: View {
                 }
                 .help(task.recurrence.map { L("Повтор: ", "Repeats: ") + $0 } ?? L("Повторение", "Recurrence"))
             }
+            // reminder: always here, next to repeat; orange when one is set
+            Menu {
+                Button(L("Через 1 час", "In 1 hour")) { store.remind(task, at: Date().addingTimeInterval(3600)) }
+                Button(L("Завтра в 10:00", "Tomorrow at 10:00")) {
+                    store.remind(task, at: Calendar.current.date(bySettingHour: 10, minute: 0, second: 0, of: addDays(1))!)
+                }
+                Button(L("Своё время…", "Custom time…")) {
+                    s.remindAt = Date().addingTimeInterval(3600); s.reminding = true; s.expanded = true
+                }
+                if store.reminders.contains(task.title) {
+                    Divider()
+                    Button(L("Убрать напоминание", "Remove reminder")) { store.unremind(task) }
+                }
+            } label: {
+                let on = store.reminders.contains(task.title)
+                icon(on ? "bell.fill" : "bell").foregroundStyle(on ? Color.orange : Color.primary)
+            }
+            .help(L("Напоминание", "Reminder"))
             Button { togglePicker() } label: { icon("calendar") }.help(L("Выбрать срок", "Pick due date"))
             Button { s.expanded.toggle() } label: {
                 icon(s.expanded ? "chevron.up" : "ellipsis")
