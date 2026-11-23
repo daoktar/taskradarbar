@@ -56,6 +56,8 @@ func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en")
     let host = NSHostingView(rootView: ContentView().environmentObject(store)
         // a real popover is a light translucent material, noticeably lighter than a window background
         .background(Color(white: dark ? 0.17 : 0.965)))
+    // "notify" as an extra argument opens the meeting reminders row
+    if CommandLine.arguments.contains("notify") { store.meetingLead = ["Today - meetings": 60]; store.notifying = true }
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
     // let SwiftUI measure the list and settle on its height

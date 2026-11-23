@@ -591,6 +591,7 @@ func selfTest() {
     eq(edit(.recurrence("every day"), f, today: td), "- [ ] f #mod/radar 🔁 every day 📅 2026-11-23")
     eq(edit(.recurrence(nil), recTask), "- [ ] weekly 📅 2026-11-23")
     eq(edit(.done, recTask, today: td, comment: "c"), "- [x] weekly 💬 c 🔁 every week 📅 2026-11-23 ✅ 2026-11-23")
+    meetingSelfTest()
     print("synthetic checks: ok")
 
     // Real note: work on a temp copy, the original is never written.
