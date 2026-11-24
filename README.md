@@ -8,7 +8,7 @@ A macOS menu bar app that shows the tasks of one [Obsidian](https://obsidian.md)
 </p>
 
 - **Sections come from the note.** Each ```` ```tasks ```` query block in the note becomes a filter in the app. Blocks under one heading can be merged into one filter with collapsible groups.
-- **Actions:** complete, cancel, move to tomorrow, pick a due date, priority, recurrence, edit text, native macOS reminders, a comment that is written as a sub-item under the task when it is closed, so the task line itself stays untouched.
+- **Actions:** complete, cancel, move to tomorrow, pick a due date, priority, recurrence, edit text, native macOS reminders, a comment that is written as a sub-item under the task when it is closed, so the task line itself stays untouched. The task text can be selected with the mouse and copied with Cmd+C; "Copy text" in the row's context menu copies the whole title. The window closes by itself on a click in another app or on the desktop.
 - **Board:** a button opens the same tasks as columns by due date in Obsidian, if you keep such a [board note](docs/board.md).
 - **Reminders before meetings.** A query block whose bold label starts with a time (`**15:30 - Roadmap review**`) is a meeting: the app sends one notification with that block's tasks 15 minutes, 30 minutes, 1 hour or 2 hours before it. The default for all sections is in the gear menu; the bell in the header sets another lead time, or none, for one section.
 - **Daily reminder for a section.** In a section without timed meetings the same bell sets a time of day: the app then sends one notification with everything in that section, every day at that time.
