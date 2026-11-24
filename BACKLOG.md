@@ -15,6 +15,7 @@
 - [ ] Status types are hardcoded (`x` done, `-` cancelled), not read from the Tasks plugin settings.
 - [ ] Only the Tasks query filters listed in `atom` (`Sources/Core.swift`) are supported; a section with an unknown line shows an error.
 - [ ] The task type tags `#mod/radar`, `/ask`, `/wait` are hardcoded, not configurable.
+- [ ] Moving a task to a date after today removes the hardcoded today's-meeting tags `#mod/radar/tNN` from its line (the task-radar convention), so it leaves today's meeting blocks; other tags stay, and the pattern is not configurable.
 - [ ] File changes are detected by polling every 3 seconds.
 - [ ] Reminders are kept by macOS and keyed by the task text; editing the text drops the reminder.
 - [ ] Recurrence: the app understands only `every [N] day|week|month|year`, `every weekday` and `when done`; tasks with other rules (`every month on the 15th`) have to be completed in Obsidian.
