@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var sub: AnyCancellable?
     var shownIcon = ""
     var closedAt = Date.distantPast
+    var outside: Any? // global mouse-down monitor, alive only while the popover is shown
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if hasBundle { UNUserNotificationCenter.current().delegate = self }
@@ -53,6 +54,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         popover.behavior = .transient
         popover.delegate = self
         popover.animates = false
+
+        // An accessory app shows no menu bar, but Cmd+C / V / X / A / Z are key equivalents of the Edit menu:
+        // without one they do nothing in the text fields and in a selected task title.
+        let edit = NSMenu(title: "Edit")
+        for (title, action, key) in [("Undo", "undo:", "z"), ("Redo", "redo:", "Z"), ("Cut", "cut:", "x"), ("Copy", "copy:", "c"),
+                                     ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
+            edit.addItem(NSMenuItem(title: title, action: Selector(action), keyEquivalent: key)) // "Z" = Cmd+Shift+Z
+        }
+        let editItem = NSMenuItem()
+        editItem.submenu = edit
+        NSApp.mainMenu = NSMenu()
+        NSApp.mainMenu?.addItem(editItem)
 
         updateTitle()
         sub = store.objectWillChange.sink { [weak self] in DispatchQueue.main.async { self?.updateTitle() } }
@@ -91,9 +104,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let window = popover.contentViewController?.view.window
         window?.makeKey()
         window?.makeFirstResponder(nil) // otherwise the section menu opens with a focus ring around it
+        // A click in another app or on the desktop closes the window. A global monitor sees only other
+        // processes' events, so the status item, the app's own menus and pickers never get here.
+        // ponytail: the "Allow" button of the system notification prompt is such a click too and closes the window.
+        outside = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            self?.closeUnlessModal()
+        }
     }
 
-    func popoverDidClose(_ notification: Notification) { closedAt = Date() }
+    func applicationDidResignActive(_ notification: Notification) { closeUnlessModal() }
+
+    /// Not while "Choose note…" runs: the open panel is the app's own doing.
+    func closeUnlessModal() {
+        if NSApp.modalWindow == nil { popover.performClose(nil) }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        closedAt = Date()
+        if let outside { NSEvent.removeMonitor(outside) }
+        outside = nil
+    }
 
     // Show the banner even though the app counts as "foreground".
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
@@ -305,6 +335,12 @@ final class Store: ObservableObject {
         if !notePath.isEmpty { p.directoryURL = URL(fileURLWithPath: notePath).deletingLastPathComponent() }
         NSApp.activate(ignoringOtherApps: true)
         if p.runModal() == .OK, let u = p.url { notePath = u.path }
+    }
+
+    /// The whole readable title to the clipboard: selecting with the mouse reaches only the three visible lines.
+    func copyTitle(_ t: TaskItem) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(String(rich(t).characters), forType: .string)
     }
 
     /// Task title with [md](links) made clickable; [[wikilinks]] are left to the source icon, see sources().
@@ -684,6 +720,7 @@ struct ClosedRow: View {
             .help(L("Reopen"))
             VStack(alignment: .leading, spacing: 3) {
                 Text(store.rich(task)).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true).help(task.title)
+                    .textSelection(.enabled)
                 if let c = task.comment {
                     Text("💬 " + c).font(.callout).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true).help(c)
                 }
@@ -694,6 +731,8 @@ struct ClosedRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .contentShape(Rectangle())
+        .contextMenu { Button(L("Copy text")) { store.copyTitle(task) } }
     }
 }
 
@@ -732,6 +771,7 @@ struct TaskRow: View {
                         .lineLimit(3) // full text: hover tooltip or the pencil
                         .fixedSize(horizontal: false, vertical: true)
                         .help(task.title)
+                        .textSelection(.enabled)
                 }
                 if let h = task.hint, task.hinted, s.hintOpen || store.inHints { hintBlock(h) }
                     }
@@ -834,6 +874,7 @@ struct TaskRow: View {
         .padding(.vertical, 7)
         .contentShape(Rectangle())
         .onHover { s.hover = $0 }
+        .contextMenu { Button(L("Copy text")) { store.copyTitle(task) } }
         .onAppear {
             if let d = store.demoExpanded, task.title.hasPrefix(d) { s.expanded = true }
             if store.demoHints { s.hintOpen = true }

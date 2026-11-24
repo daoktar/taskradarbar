@@ -24,6 +24,7 @@
 - [ ] Daily reminder for a section: also posted by the app itself, so skipped if the app is not running at that minute. The setting is keyed by the section name as shown; renaming the heading or switching the language (for "All open") drops it.
 - [ ] Close hints (`- 🧹 close: reason` under a task): the action words `close`, `cancel`, `dup`, `keep` are the task-radar convention, hardcoded; one hint per task, read from the two sub-items right under it; no bulk "accept all confirmed"; the section "Maybe close or cancel" disappears with the last hint, so a remembered choice of it falls back to the first section.
 - [ ] The built-in "Overdue" and "Maybe close or cancel" are named in the interface language; switching the language drops a daily reminder set on them, as for "All open".
+- [ ] The window closes on any mouse-down outside the app, so clicking "Allow" on the system notification prompt closes it too. The mouse selects only the three visible lines of a long title; "Copy text" in the row's context menu copies all of it, as shown (link labels without their URLs).
 - [ ] The comment draft is stored in the app settings and keyed by the task text; editing the text loses the draft.
 
 ## Security (from the audit of 2026-11-23)

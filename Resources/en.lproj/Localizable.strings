@@ -129,6 +129,7 @@
 "on" = "on";
 "Closed tasks" = "Closed tasks";
 "Reopen" = "Reopen";
+"Copy text" = "Copy text";
 "Completed" = "Completed";
 "Cancelled" = "Cancelled";
 "Overdue" = "Overdue";

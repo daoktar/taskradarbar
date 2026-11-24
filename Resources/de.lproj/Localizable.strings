@@ -129,6 +129,7 @@
 "on" = "an";
 "Closed tasks" = "Erledigte Aufgaben";
 "Reopen" = "Wieder öffnen";
+"Copy text" = "Text kopieren";
 "Completed" = "Erledigt";
 "Cancelled" = "Abgebrochen";
 "Overdue" = "Überfällig";
