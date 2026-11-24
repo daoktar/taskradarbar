@@ -4,7 +4,7 @@ import AppKit
 /// `taskradarbar --screenshots docs`: renders the README pictures from made-up tasks.
 /// Nothing is captured from the screen, no real note is read, the user's settings are not touched:
 /// the window content is drawn offscreen and framed with a drawn menu bar and popover.
-func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en", boardHelp: Bool = false) {
+func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en", boardHelp: Bool = false, hints: Bool = false) {
     let d = { (n: Int) in day(addDays(n)) }
     let note = """
     ## Today
@@ -31,8 +31,12 @@ func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en",
     ## Tasks
     - [ ] Send the Q4 report draft to the team [[Planning notes]] #sync 🔺 📅 \(d(0))
     - [ ] Reply about the launch date in the [thread](https://example.com/thread) #sync 📅 \(d(-2))
+        - 🧹 close: you answered in the thread on Monday and the date was confirmed, see the [last reply](https://example.com/thread)
     - [ ] Book a room for the workshop [[Roadmap]] #roadmap ⏫ 🔁 every week 📅 \(d(1))
     - [ ] Collect feedback on the new onboarding #roadmap
+        - 🧹 cancel: the onboarding redesign was dropped at the roadmap review, [meeting notes](https://example.com/notes)
+    - [ ] Ask the team for the Q4 report numbers 📅 \(d(3))
+        - 🧹 dup: same commitment as “Send the Q4 report draft to the team”, keep that one
     - [ ] Renew the domain 🔼 📅 \(d(0))
     - [x] Draft the agenda [[Planning notes]] #sync 📅 \(d(0)) ✅ \(d(0))
         - 💬 Sent to everyone, two items moved to next week
@@ -64,6 +68,11 @@ func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en",
     if CommandLine.arguments.contains("notify") { store.meetingLead = ["Today - meetings": 60]; store.notifying = true }
     // "closed": the closed tasks of the section
     if CommandLine.arguments.contains("closed") { store.showClosed = true }
+    // "hints": the section of radar close hints; "hint": an ordinary section with the hints opened in place
+    if hints || CommandLine.arguments.contains("hints") { store.sectionName = L("Maybe close or cancel") }
+    if CommandLine.arguments.contains("hint") { store.demoHints = true }
+    // "overdue": the built-in section of overdue tasks (in English the demo note's own block has that name)
+    if CommandLine.arguments.contains("overdue") { store.sectionName = L("Overdue") }
     // "daily": the daily reminder row of a section without meetings
     if CommandLine.arguments.contains("daily") { store.sectionName = "Today"; store.dailyTime = ["Today": 570]; store.notifying = true }
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)

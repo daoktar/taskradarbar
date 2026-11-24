@@ -18,6 +18,7 @@ enum Main {
             writeDemoScreenshot(dir + "/screenshot.png", expanded: nil, lang: lang)
             writeDemoScreenshot(dir + "/screenshot-panel.png", expanded: "Book a room", lang: lang)
             writeDemoScreenshot(dir + "/screenshot-board.png", expanded: nil, lang: lang, boardHelp: true)
+            writeDemoScreenshot(dir + "/screenshot-hints.png", expanded: nil, lang: lang, hints: true)
             return
         }
         let app = NSApplication.shared
@@ -188,6 +189,8 @@ final class Store: ObservableObject {
     let defaults: UserDefaults
     /// README screenshot only: title prefix of the task whose panel is drawn open.
     var demoExpanded: String?
+    /// Screenshots only: draw every radar hint open.
+    var demoHints = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -232,6 +235,8 @@ final class Store: ObservableObject {
         return !searching || q.isEmpty || t.body.localizedCaseInsensitiveContains(q)
     }
     var shown: [TaskItem] { visible.filter(matches) }
+    /// The built-in section of radar hints: there the hint of each task is drawn open.
+    var inHints: Bool { section?.name == L("Maybe close or cancel") }
 
     func reload(force: Bool = false) {
         guard !notePath.isEmpty else { tasks = []; rawSections = []; return }
@@ -302,9 +307,11 @@ final class Store: ObservableObject {
         if p.runModal() == .OK, let u = p.url { notePath = u.path }
     }
 
-    /// Task title with [[wikilinks]] and [md](links) made clickable.
-    func rich(_ t: TaskItem) -> AttributedString {
-        let s = t.title
+    /// Task title with [md](links) made clickable; [[wikilinks]] are left to the source icon, see sources().
+    func rich(_ t: TaskItem) -> AttributedString { rich(t.title) }
+
+    /// `wiki`: keep [[wikilinks]] as their plain name instead of dropping them (a radar hint has no source icon).
+    func rich(_ s: String, wiki: Bool = false) -> AttributedString {
         var out = AttributedString()
         let re = try! NSRegularExpression(pattern: "\\[\\[([^\\]|]+)(?:\\|([^\\]]+))?\\]\\]|\\[([^\\]]+)\\]\\(([^)\\s]+)\\)")
         var pos = s.startIndex
@@ -313,7 +320,8 @@ final class Store: ObservableObject {
             func g(_ n: Int) -> String? { Range(m.range(at: n), in: s).map { String(s[$0]) } }
             out += AttributedString(String(s[pos..<r.lowerBound]))
             var link: AttributedString
-            if g(1) != nil {
+            if let name = g(1) {
+                if wiki { out += AttributedString(g(2) ?? name) }
                 pos = r.upperBound // source note: shown as an icon in the status row, see sources()
                 continue
             } else {
@@ -647,6 +655,7 @@ final class RowState: ObservableObject {
     @Published var pickDate = Date()
     @Published var reminding = false
     @Published var remindAt = Date()
+    @Published var hintOpen = false
 }
 
 func prioColor(_ p: String?) -> Color {
@@ -724,6 +733,7 @@ struct TaskRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .help(task.title)
                 }
+                if let h = task.hint, task.hinted, s.hintOpen || store.inHints { hintBlock(h) }
                     }
                     Spacer(minLength: 0)
                     // source note(s): top-right corner, right above the "more" button
@@ -773,6 +783,10 @@ struct TaskRow: View {
                         }
                         .help(has ? (store.comments[task.title] ?? "") : L("Comment for the agent"))
                     }
+                    if let h = task.hint, task.hinted, !store.inHints {
+                        Button { s.hintOpen.toggle() } label: { Text("🧹").font(.system(size: 14)).frame(width: 28, height: 26).contentShape(Rectangle()) }
+                            .help(hintTitle(h) + ". " + h.text)
+                    }
                     if store.showTags {
                         let tags = Text(task.tags.joined(separator: " ")).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                         if task.hasRadarTag {
@@ -813,7 +827,37 @@ struct TaskRow: View {
         .padding(.vertical, 7)
         .contentShape(Rectangle())
         .onHover { s.hover = $0 }
-        .onAppear { if let d = store.demoExpanded, task.title.hasPrefix(d) { s.expanded = true } }
+        .onAppear {
+            if let d = store.demoExpanded, task.title.hasPrefix(d) { s.expanded = true }
+            if store.demoHints { s.hintOpen = true }
+        }
+    }
+
+    func hintTitle(_ h: Hint) -> String {
+        h.action == "close" ? L("Radar: close") : h.action == "dup" ? L("Radar: duplicate") : L("Radar: cancel")
+    }
+
+    /// What the task radar suggests and why, and the three answers. The reason is machine-written text:
+    /// same link rule as the task title, only http/https is clickable.
+    func hintBlock(_ h: Hint) -> some View {
+        var title = AttributedString("🧹 " + hintTitle(h) + ". ")
+        title.font = .callout.weight(.semibold)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(title + store.rich(h.text, wiki: true))
+                .font(.callout)
+                .foregroundStyle(Color(nsColor: .textColor))
+                .lineLimit(6)
+                .fixedSize(horizontal: false, vertical: true)
+                .help(h.text)
+            HStack(spacing: 4) {
+                chip("✓ " + L("Complete"), active: h.action == "close") { store.apply(.done, to: task) }
+                chip("✕ " + L("Cancel task"), active: h.action != "close") { store.apply(.cancel, to: task) }
+                chip(L("Keep"), active: false) { store.apply(.keepHint, to: task) }
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
     }
 
     var actions: some View {
@@ -853,7 +897,7 @@ struct TaskRow: View {
     }
 
     /// Every icon under the task text is dimmed until the row is hovered; the close circle and the text are not.
-    var rest: Double { s.hover || s.expanded || s.picking ? 1 : 0.55 }
+    var rest: Double { s.hover || s.expanded || s.picking || s.hintOpen ? 1 : 0.55 }
 
     /// The one icon size for the whole row: status icons on the left and actions on the right.
     func icon(_ name: String) -> some View {
