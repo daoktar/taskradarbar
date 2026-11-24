@@ -99,7 +99,7 @@ To check that a translation fits the window, render the screenshots in that lang
 - Reminders before meetings are sent by the app itself, so the text is current at that moment. If the app is not running or the Mac is asleep then, the reminder is skipped, not sent late. The time in the label is taken as today's; an empty block sends nothing.
 - Close hints are read only from the one or two sub-items right under a task (`💬` comment and `🧹` hint, in either order). The action words `close`, `cancel`, `dup`, `keep` are fixed. There is no "accept all".
 - The built-in "Overdue" is not added when the note has its own block under a heading with exactly that name.
-- The "task type" menu uses the tags `#mod/radar`, `#mod/radar/ask`, `#mod/radar/wait`; it only appears on tasks that have one of them.
+- The "task type" menu uses the tags `#mod/radar`, `#mod/radar/ask`, `#mod/radar/wait`; it only appears on tasks that have one of them. A task tagged `/ask` or `/wait` also carries a coloured `ask` / `wait` label next to its due date.
 
 ## Backlog
 
