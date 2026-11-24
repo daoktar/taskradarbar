@@ -787,14 +787,21 @@ struct TaskRow: View {
                         Button { s.hintOpen.toggle() } label: { Text("🧹").font(.system(size: 14)).frame(width: 28, height: 26).contentShape(Rectangle()) }
                             .help(hintTitle(h) + ". " + h.text)
                     }
+                    // ask / wait: a coloured label, so someone else's task is told apart from one's own at a glance
+                    if let kind = ["ask", "wait"].first(where: { task.tags.contains("#mod/radar/" + $0) }) {
+                        let color: Color = kind == "ask" ? .purple : .teal
+                        Menu { typeMenu } label: {
+                            Text(kind).font(.caption).fontWeight(.semibold).foregroundStyle(color)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(color.opacity(0.15), in: Capsule())
+                                .padding(.horizontal, 3).frame(height: 26).contentShape(Rectangle())
+                        }
+                        .help(L(kind == "ask" ? "ask: waiting for my decision" : "wait: blocked on others"))
+                    }
                     if store.showTags {
                         let tags = Text(task.tags.joined(separator: " ")).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                         if task.hasRadarTag {
-                            Menu {
-                                Button(L("Regular task")) { store.apply(.subtag(""), to: task) }
-                                Button(L("ask: waiting for my decision")) { store.apply(.subtag("/ask"), to: task) }
-                                Button(L("wait: blocked on others")) { store.apply(.subtag("/wait"), to: task) }
-                            } label: { tags.padding(.leading, 4).frame(height: 26).contentShape(Rectangle()) }
+                            Menu { typeMenu } label: { tags.padding(.leading, 4).frame(height: 26).contentShape(Rectangle()) }
                             .help(L("Task type"))
                         } else {
                             tags.padding(.leading, 4)
@@ -900,6 +907,12 @@ struct TaskRow: View {
     var rest: Double { s.hover || s.expanded || s.picking || s.hintOpen ? 1 : 0.55 }
 
     /// The one icon size for the whole row: status icons on the left and actions on the right.
+    @ViewBuilder var typeMenu: some View {
+        Button(L("Regular task")) { store.apply(.subtag(""), to: task) }
+        Button(L("ask: waiting for my decision")) { store.apply(.subtag("/ask"), to: task) }
+        Button(L("wait: blocked on others")) { store.apply(.subtag("/wait"), to: task) }
+    }
+
     func icon(_ name: String) -> some View {
         Image(systemName: name).font(.system(size: 16)).frame(width: 28, height: 26).contentShape(Rectangle())
     }
