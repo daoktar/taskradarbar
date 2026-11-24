@@ -185,6 +185,9 @@ func edit(_ e: Edit, _ t: TaskItem, today: String = day()) -> String {
         } else {
             body = sub(body, "\\s*" + re)
         }
+        // ponytail: task-radar convention, #mod/radar/tNN = today's meeting (mNN = tomorrow's, kept). A task moved
+        // past today leaves today's meeting blocks; the radar reassigns these tags on its next run anyway.
+        if let d, d > today { body = sub(body, "\\s*(?<!\\S)#mod/radar/t\\d+(?![\\w/-])") }
     case .priority(let p):
         body = sub(body, "\\s*" + prioRe)
         if let p { body = insertMeta(body, p) }
@@ -584,6 +587,16 @@ func selfTest() {
     eq(edit(.due("2026-11-24"), f), "- [ ] f #mod/radar 📅 2026-11-24")
     eq(edit(.due("2026-11-24"), g), "- [ ] g 📅 2026-11-24 ^abc")
     eq(edit(.due(nil), a), "- [ ] a [[note|n]] #mod/radar 🔺")
+    // moving past today drops today's meeting tag (tNN) and nothing else
+    func mv(_ l: String, _ d: String?) -> String { edit(.due(d), TaskItem.parse(l, line: 0)!, today: td) }
+    let mtg = "- [ ] x #mod/radar #mod/radar/t01 #mod/radar/m02 🔺 📅 2026-11-23"
+    eq(mv(mtg, "2026-11-24"), "- [ ] x #mod/radar #mod/radar/m02 🔺 📅 2026-11-24")
+    eq(mv(mtg, td), mtg)
+    eq(mv(mtg, "2026-11-20"), "- [ ] x #mod/radar #mod/radar/t01 #mod/radar/m02 🔺 📅 2026-11-20")
+    eq(mv(mtg, nil), "- [ ] x #mod/radar #mod/radar/t01 #mod/radar/m02 🔺")
+    eq(mv("- [ ] x #mod/radar/t01 #mod/radar/ask 📅 2026-11-23 #mod/radar/t12", "2026-12-01"), "- [ ] x #mod/radar/ask 📅 2026-12-01")
+    eq(mv("- [ ] x #mod/radar/t01", "2026-11-24"), "- [ ] x 📅 2026-11-24")
+    eq(mv("- [ ] x #mod/radar/team #mod/radar/wait 📅 2026-11-23", "2026-11-24"), "- [ ] x #mod/radar/team #mod/radar/wait 📅 2026-11-24")
     eq(edit(.priority(nil), a), "- [ ] a [[note|n]] #mod/radar 📅 2026-11-23")
     eq(edit(.priority("⏫"), a), "- [ ] a [[note|n]] #mod/radar ⏫ 📅 2026-11-23")
     eq(edit(.priority("⏫"), f), "- [ ] f #mod/radar ⏫")
