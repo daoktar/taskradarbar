@@ -131,3 +131,9 @@
 "Reopen" = "Вернуть в работу";
 "Completed" = "Закрыта";
 "Cancelled" = "Отменена";
+"Overdue" = "Просрочено";
+"Maybe close or cancel" = "Возможно закрыть или отменить";
+"Radar: close" = "Радар: закрыть";
+"Radar: cancel" = "Радар: отменить";
+"Radar: duplicate" = "Радар: дубль";
+"Keep" = "Оставить";

@@ -100,6 +100,7 @@ struct TaskItem: Identifiable, Equatable {
     let recurrence: String?   // rule text after 🔁, e.g. "every week"
     let closedOn: String?     // date after ✅ or ❌
     var comment: String? = nil // "- 💬 ..." sub-bullet right under the task, set by parseNote
+    var hint: Hint? = nil      // "- 🧹 ..." sub-bullet: the task radar suggests closing this task
     let hasRadarTag: Bool
     /// Body without tags, dates and priority.
     let title: String
@@ -107,6 +108,8 @@ struct TaskItem: Identifiable, Equatable {
     var id: String { "\(line)|\(raw)" }
     // ponytail: status types hardcoded (x = done, - = cancelled), not read from the Tasks plugin's data.json
     var isOpen: Bool { !"xX-".contains(status) }
+    /// Open, with a radar hint the user has not answered with "keep".
+    var hinted: Bool { isOpen && hint != nil && hint?.action != "keep" }
 
     static func parse(_ raw: String, line: Int) -> TaskItem? {
         guard let g = groups("^(\\s*(?:>\\s*)*[-*+] \\[)(.)\\] (.*)$", raw), let st = g[2].first else { return nil }
@@ -134,6 +137,7 @@ enum Edit {
     case text(String)     // whole body after the checkbox
     case recurrence(String?) // rule in Tasks syntax ("every week"), nil removes it
     case reopen              // a closed or cancelled task back to open
+    case keepHint            // answer the radar's hint with "keep": the task line stays, its 🧹 sub-item is marked
 }
 
 /// Append at end of line, but keep a trailing block id (^abc) last.
@@ -170,6 +174,28 @@ func commentText(_ line: String) -> String? {
     groups("^\\s*(?:>\\s*)*[-*+] 💬\\s*(.+)$", line)?[1].trimmed
 }
 
+/// A close hint the task radar leaves under an open task: "    - 🧹 close: reason [evidence](url)".
+/// The app only reads it and, on "keep", rewrites its action word; the radar removes spent hints itself.
+// ponytail: the action words are the task-radar convention (close, cancel, dup, keep), not configurable
+struct Hint: Equatable {
+    let action: String
+    let text: String
+}
+
+func hintText(_ line: String) -> Hint? {
+    guard let g = groups("^\\s*(?:>\\s*)*[-*+] 🧹\\s*(close|cancel|dup|keep):\\s*(.+)$", line) else { return nil }
+    return Hint(action: g[1].lowercased(), text: g[2].trimmed)
+}
+
+/// Line indices of the 💬 and 🧹 sub-bullets right under the task at `i`, in either order.
+func subItems(_ lines: [String], under i: Int) -> (comment: Int?, hint: Int?) {
+    var c: Int?, h: Int?
+    for j in lines.indices.dropFirst(i + 1).prefix(2) {
+        if c == nil, commentText(lines[j]) != nil { c = j } else if h == nil, hintText(lines[j]) != nil { h = j } else { break }
+    }
+    return (c, h)
+}
+
 func edit(_ e: Edit, _ t: TaskItem, today: String = day()) -> String {
     var status = t.status
     var body = t.body
@@ -202,6 +228,7 @@ func edit(_ e: Edit, _ t: TaskItem, today: String = day()) -> String {
         }
     case .text(let s):
         body = oneLine(s)
+    case .keepHint: break // the task line is not touched, see patchFile
     case .reopen:
         // ponytail: reopening a recurring task leaves the next occurrence that closing it created
         status = " "
@@ -287,6 +314,12 @@ func patchFile(_ notePath: String, _ t: TaskItem, _ e: Edit, comment: String? = 
         throw Fail(msg: L("The task line changed in the note. The list is refreshed, try again."))
     }
     lines[i] = edit(e, t)
+    if case .keepHint = e {
+        guard let j = subItems(lines, under: i).hint, let r = lines[j].range(of: "🧹\\s*[A-Za-z]+:", options: .regularExpression) else {
+            throw Fail(msg: L("The task line changed in the note. The list is refreshed, try again."))
+        }
+        lines[j].replaceSubrange(r, with: "🧹 keep:")
+    }
     // the comment goes in together with a status change only: its own line right under the task
     switch e {
     case .done, .cancel: if let c = comment.flatMap({ commentLine(t, $0) }) { lines.insert(c, at: i + 1) }
@@ -472,9 +505,19 @@ func parseNote(_ text: String, now: Date = Date()) -> ([TaskItem], [Section]) {
         if let g = groups("^#{1,6}\\s+(.+)$", line) { heading = g[1]; sub2 = nil; continue }
         if let g = groups("^\\*\\*(.+)\\*\\*$", line) { sub2 = g[1]; continue } // e.g. per-meeting blocks
         if var t = TaskItem.parse(raw, line: i) {
-            if i + 1 < lines.count { t.comment = commentText(lines[i + 1]) }
+            let subs = subItems(lines, under: i)
+            t.comment = subs.comment.flatMap { commentText(lines[$0]) }
+            t.hint = subs.hint.flatMap { hintText(lines[$0]) }
             tasks.append(t)
         }
+    }
+    // built-in sections, after the note's own; "All open" stays last
+    let today = day(now), overdue = L("Overdue")
+    if !sections.contains(where: { $0.name == overdue }) { // the note's own block of that name wins
+        sections.append(Section(name: overdue, preds: [{ $0.isOpen && ($0.due ?? "9999") < today }], limit: nil, error: nil))
+    }
+    if tasks.contains(where: \.hinted) {
+        sections.append(Section(name: L("Maybe close or cancel"), preds: [{ $0.hint != nil && $0.hint?.action != "keep" }, { $0.isOpen }], limit: nil, error: nil))
     }
     sections.append(Section(name: L("All open"), preds: [{ $0.isOpen }], limit: nil, error: nil))
     return (tasks, sections)
@@ -569,13 +612,14 @@ func selfTest() {
     """
     let (tasks, sections) = parseNote(note, now: now)
     precondition(tasks.count == 7, "tasks: \(tasks.count)")
-    eq(sections.map(\.name).joined(separator: ","), "Сегодня,Неделя,Сломано,All open")
+    eq(sections.map(\.name).joined(separator: ","), "Сегодня,Неделя,Сломано,Overdue,All open")
     eq(sections[0].select(tasks).map(\.title).joined(separator: ","), "e,a [[note|n]]")
     eq(sections[1].select(tasks).map(\.title).joined(separator: ","), "d")
     precondition(sections[2].error != nil && sections[0].error == nil)
-    precondition(sections[3].select(tasks).count == 6)
+    eq(sections[3].select(tasks).map(\.title).joined(separator: ","), "e") // built-in Overdue: open, due before today
+    precondition(sections[4].select(tasks).count == 6)
     eq(sections[0].select(tasks, closed: true).map(\.title).joined(separator: ","), "c") // closed, due today, not /wait
-    precondition(sections[1].select(tasks, closed: true).isEmpty && sections[3].select(tasks, closed: true).count == 1)
+    precondition(sections[1].select(tasks, closed: true).isEmpty && sections[4].select(tasks, closed: true).count == 1)
     eq(edit(.reopen, tasks[2]), "- [ ] c #mod/radar 📅 2026-11-23")
     eq(tasks[2].closedOn ?? "nil", "2026-11-23")
 
@@ -623,8 +667,8 @@ func selfTest() {
     - [ ] none
     """, now: now)
     let merged = mergeSections(ms)
-    eq(ms.map(\.name).joined(separator: ","), "Встречи › 10:00 - A,Встречи › 11:00 - B,All open")
-    eq(merged.map(\.name).joined(separator: ","), "Встречи,All open")
+    eq(ms.map(\.name).joined(separator: ","), "Встречи › 10:00 - A,Встречи › 11:00 - B,Overdue,All open")
+    eq(merged.map(\.name).joined(separator: ","), "Встречи,Overdue,All open")
     precondition(merged[0].children.count == 2 && merged[0].select(mt).count == 3)
     eq(edit(.text("a\r\nb\u{2028}c"), a), "- [ ] a  b c")
     let rec = NSTemporaryDirectory() + "taskradarbar-selftest-rec.md"
@@ -667,6 +711,49 @@ func selfTest() {
     let parsed = parseNote(withComments, now: now).0
     eq(parsed.map { $0.comment ?? "-" }.joined(separator: "|"), "-|c|неактуально #сняли|-")
     eq(parsed[2].raw, edit(.cancel, plain)) // the task line carries no trace of the comment
+    // radar hints: a 🧹 sub-bullet under the task, next to the comment in either order
+    eq(hintText("  >   - 🧹 dup: same as “x”, keep that one").map { $0.action + "|" + $0.text } ?? "nil", "dup|same as “x”, keep that one")
+    precondition(hintText("    - 🧹 later: no such action") == nil && hintText("    - 💬 close: a comment") == nil)
+    let hinted = """
+    ## Overdue
+    ```tasks
+    not done
+    due before today
+    ```
+    - [ ] h1 📅 2026-11-20
+        - 🧹 close: done in [thread](https://example.com/t)
+    - [ ] h2
+        - 💬 mine
+        - 🧹 cancel: dropped
+    - [ ] h3
+        - 🧹 keep: answered already
+    - [x] h4 ✅ 2026-11-22
+        - 🧹 close: accepted
+    - [ ] h5
+    - 🧹 close: not a sub-item of h5's neighbour
+    - [ ] h6
+    """
+    let (ht, hs) = parseNote(hinted, now: now)
+    eq(hs.map(\.name).joined(separator: ","), "Overdue,Maybe close or cancel,All open") // the note's own Overdue wins
+    eq(ht.map { $0.hint?.action ?? "-" }.joined(separator: ","), "close,cancel,keep,close,close,-")
+    eq(ht[1].comment ?? "nil", "mine")
+    eq(hs[1].select(ht).map(\.title).joined(separator: ","), "h1,h2,h5") // not the kept one, not the closed one
+    eq(hs[1].select(ht, closed: true).map(\.title).joined(separator: ","), "h4")
+    precondition(parseNote("- [ ] a\n    - 🧹 keep: x", now: now).1.count == 2) // no open hints: no hints section
+    try! "- [ ] h1 📅 2026-11-20\n    - 🧹 close: done 🧹 x: y\n- [ ] h2\n    - 💬 mine\n    - 🧹 cancel: dropped\n- [ ] h6\n".write(toFile: rec, atomically: true, encoding: .utf8)
+    try! patchFile(rec, ht[0], .keepHint)
+    try! patchFile(rec, ht[1], .done, comment: "new")
+    do { try patchFile(rec, ht[5], .keepHint); preconditionFailure("keep without a hint must be rejected") } catch {}
+    eq(try! String(contentsOfFile: rec, encoding: .utf8), """
+    - [ ] h1 📅 2026-11-20
+        - 🧹 keep: done 🧹 x: y
+    - [x] h2 ✅ \(day())
+        - 💬 new
+        - 💬 mine
+        - 🧹 cancel: dropped
+    - [ ] h6
+
+    """)
     eq(boardLink("---\ntags: [a]\n---\n# Title\n**Board:** [[Dir/My board|board]] as columns\n## Today\n- [ ] t [[Other]]") ?? "nil", "Dir/My board")
     eq(boardLink("---\nup: \"[[Index]]\"\n---\n![[banner.png]]\nsee [[Board#Columns]]") ?? "nil", "Board")
     precondition(boardLink("# Title\n## Today\n- [ ] t [[Other]]") == nil && boardLink("- [ ] t [[Other]]\n[[Board]]") == nil)
