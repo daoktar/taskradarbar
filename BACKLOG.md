@@ -21,6 +21,8 @@
 - [ ] The board note is the first wikilink at the top of the task note and is not checked for existence; a board chosen in settings must be in the same vault and can be replaced but not cleared.
 - [ ] Reminders before meetings: the app posts them itself while it runs, nothing is scheduled with macOS, so a reminder missed while the Mac slept is skipped. The time in the block label is taken as today's, and a reminder never crosses midnight. The setting is keyed by the note heading; renaming the heading drops it.
 - [ ] Daily reminder for a section: also posted by the app itself, so skipped if the app is not running at that minute. The setting is keyed by the section name as shown; renaming the heading or switching the language (for "All open") drops it.
+- [ ] Close hints (`- 🧹 close: reason` under a task): the action words `close`, `cancel`, `dup`, `keep` are the task-radar convention, hardcoded; one hint per task, read from the two sub-items right under it; no bulk "accept all confirmed"; the section "Maybe close or cancel" disappears with the last hint, so a remembered choice of it falls back to the first section.
+- [ ] The built-in "Overdue" and "Maybe close or cancel" are named in the interface language; switching the language drops a daily reminder set on them, as for "All open".
 - [ ] The comment draft is stored in the app settings and keyed by the task text; editing the text loses the draft.
 
 ## Security (from the audit of 2026-11-23)

@@ -131,3 +131,9 @@
 "Reopen" = "Reopen";
 "Completed" = "Completed";
 "Cancelled" = "Cancelled";
+"Overdue" = "Overdue";
+"Maybe close or cancel" = "Maybe close or cancel";
+"Radar: close" = "Radar: close";
+"Radar: cancel" = "Radar: cancel";
+"Radar: duplicate" = "Radar: duplicate";
+"Keep" = "Keep";

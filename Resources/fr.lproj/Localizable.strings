@@ -131,3 +131,9 @@
 "Reopen" = "Rouvrir";
 "Completed" = "Terminée";
 "Cancelled" = "Annulée";
+"Overdue" = "En retard";
+"Maybe close or cancel" = "À terminer ou annuler ?";
+"Radar: close" = "Radar : terminer";
+"Radar: cancel" = "Radar : annuler";
+"Radar: duplicate" = "Radar : doublon";
+"Keep" = "Garder";

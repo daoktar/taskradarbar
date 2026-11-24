@@ -131,3 +131,9 @@
 "Reopen" = "Wieder öffnen";
 "Completed" = "Erledigt";
 "Cancelled" = "Abgebrochen";
+"Overdue" = "Überfällig";
+"Maybe close or cancel" = "Evtl. erledigen oder abbrechen";
+"Radar: close" = "Radar: erledigen";
+"Radar: cancel" = "Radar: abbrechen";
+"Radar: duplicate" = "Radar: Duplikat";
+"Keep" = "Behalten";
