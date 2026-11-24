@@ -99,6 +99,7 @@ struct TaskItem: Identifiable, Equatable {
     let tags: [String]
     let recurrence: String?   // rule text after 🔁, e.g. "every week"
     let closedOn: String?     // date after ✅ or ❌
+    var comment: String? = nil // "- 💬 ..." sub-bullet right under the task, set by parseNote
     let hasRadarTag: Bool
     /// Body without tags, dates and priority.
     let title: String
@@ -151,24 +152,25 @@ func insertMeta(_ body: String, _ tok: String) -> String {
     return appendToken(body, tok)
 }
 
-/// Trailing run of tags / priority / dates / block id. A comment must go before it:
-/// the Tasks plugin only reads metadata from the end of the line.
-let trailingMetaRe = "(?:\\s+(?:#[^\\s#]+|" + prioRe + "|" + metaDateRe + "|[🆔⛔]\\uFE0F? *[\\w,-]+|" + recurRe + "|\\^[A-Za-z0-9-]+))*\\s*$"
-
 /// User-typed text goes into a single markdown line: no \n, \r, U+2028 and friends.
 func oneLine(_ s: String) -> String {
     s.components(separatedBy: .newlines).joined(separator: " ").trimmed
 }
 
-func insertComment(_ body: String, _ comment: String) -> String {
+/// The comment line written under a task when it is closed: a sub-bullet, one indent level deeper.
+/// The task line itself stays as it was, so the Tasks plugin and anything matching the task by its text
+/// (the radar's memory) are unaffected, and the comment can contain any characters.
+func commentLine(_ t: TaskItem, _ comment: String) -> String? {
     let text = oneLine(comment)
-    guard !text.isEmpty else { return body }
-    let r = body.range(of: trailingMetaRe, options: .regularExpression) ?? body.endIndex..<body.endIndex
-    return body[..<r.lowerBound] + " 💬 " + text + body[r]
+    return text.isEmpty ? nil : String(t.prefix.dropLast(3)) + "    - 💬 " + text // prefix ends with "- ["
 }
 
-/// `comment` is written into the line only together with a status change (done / cancel).
-func edit(_ e: Edit, _ t: TaskItem, today: String = day(), comment: String? = nil) -> String {
+/// "    - 💬 text" right under a task -> "text".
+func commentText(_ line: String) -> String? {
+    groups("^\\s*(?:>\\s*)*[-*+] 💬\\s*(.+)$", line)?[1].trimmed
+}
+
+func edit(_ e: Edit, _ t: TaskItem, today: String = day()) -> String {
     var status = t.status
     var body = t.body
     switch e {
@@ -176,7 +178,6 @@ func edit(_ e: Edit, _ t: TaskItem, today: String = day(), comment: String? = ni
         let isDone: Bool = { if case .done = e { return true } else { return false } }()
         status = isDone ? "x" : "-"
         body = appendToken(sub(body, "\\s*[✅❌]\\uFE0F? *" + dateRe), (isDone ? "✅ " : "❌ ") + today)
-        if let comment { body = insertComment(body, comment) }
     case .due(let d):
         let re = "📅\\uFE0F? *" + dateRe
         if let d {
@@ -282,7 +283,12 @@ func patchFile(_ notePath: String, _ t: TaskItem, _ e: Edit, comment: String? = 
     guard let i = lines.indices.filter({ lines[$0] == t.raw }).min(by: { abs($0 - t.line) < abs($1 - t.line) }) else {
         throw Fail(msg: L("The task line changed in the note. The list is refreshed, try again."))
     }
-    lines[i] = edit(e, t, comment: comment)
+    lines[i] = edit(e, t)
+    // the comment goes in together with a status change only: its own line right under the task
+    switch e {
+    case .done, .cancel: if let c = comment.flatMap({ commentLine(t, $0) }) { lines.insert(c, at: i + 1) }
+    default: break
+    }
     if let next { lines.insert(next, at: i) } // above the closed one, as Tasks does by default
     let out = lines.joined(separator: nl)
     try out.write(toFile: path, atomically: true, encoding: .utf8)
@@ -438,7 +444,8 @@ func makeSection(_ name: String, _ query: [String], _ now: Date) -> Section {
 func parseNote(_ text: String, now: Date = Date()) -> ([TaskItem], [Section]) {
     var tasks: [TaskItem] = [], sections: [Section] = []
     var heading = L("Tasks"), sub2: String?, query: [String]?, inFence = false
-    for (i, raw) in splitLines(text).0.enumerated() {
+    let lines = splitLines(text).0
+    for (i, raw) in lines.enumerated() {
         let line = raw.trimmed
         if query != nil {
             if line.hasPrefix("```") {
@@ -461,7 +468,10 @@ func parseNote(_ text: String, now: Date = Date()) -> ([TaskItem], [Section]) {
         if inFence { continue }
         if let g = groups("^#{1,6}\\s+(.+)$", line) { heading = g[1]; sub2 = nil; continue }
         if let g = groups("^\\*\\*(.+)\\*\\*$", line) { sub2 = g[1]; continue } // e.g. per-meeting blocks
-        if let t = TaskItem.parse(raw, line: i) { tasks.append(t) }
+        if var t = TaskItem.parse(raw, line: i) {
+            if i + 1 < lines.count { t.comment = commentText(lines[i + 1]) }
+            tasks.append(t)
+        }
     }
     sections.append(Section(name: L("All open"), preds: [{ $0.isOpen }], limit: nil, error: nil))
     return (tasks, sections)
@@ -581,10 +591,9 @@ func selfTest() {
     eq(edit(.subtag("/wait"), a), "- [ ] a [[note|n]] #mod/radar/wait 🔺 📅 2026-11-23")
     eq(edit(.subtag(""), b), "- [ ] b #mod/radar 📅 2026-11-23")
     eq(edit(.text("new text 📅 2026-12-01"), a), "- [ ] new text 📅 2026-12-01")
-    eq(edit(.done, a, today: td, comment: "сделал, см. тред"), "- [x] a [[note|n]] 💬 сделал, см. тред #mod/radar 🔺 📅 2026-11-23 ✅ 2026-11-23")
-    eq(edit(.cancel, g, today: td, comment: "неактуально"), "- [-] g 💬 неактуально ❌ 2026-11-23 ^abc")
-    eq(edit(.due("2026-11-24"), f, comment: "ignored"), "- [ ] f #mod/radar 📅 2026-11-24")
-    precondition(TaskItem.parse(edit(.done, a, today: td, comment: "c"), line: 0)?.due == "2026-11-23")
+    eq(commentLine(a, " сделал,\nсм. тред #1 ") ?? "nil", "    - 💬 сделал, см. тред #1")
+    eq(commentLine(TaskItem.parse("  > - [ ] quoted", line: 0)!, "c") ?? "nil", "  >     - 💬 c")
+    precondition(commentLine(a, "  ") == nil && commentText("- [ ] not a comment") == nil)
     let (mt, ms) = parseNote("""
     ## Встречи
     **10:00 - A**
@@ -626,7 +635,25 @@ func selfTest() {
     eq(edit(.recurrence("every week"), a, today: td), "- [ ] a [[note|n]] #mod/radar 🔺 🔁 every week 📅 2026-11-23")
     eq(edit(.recurrence("every day"), f, today: td), "- [ ] f #mod/radar 🔁 every day 📅 2026-11-23")
     eq(edit(.recurrence(nil), recTask), "- [ ] weekly 📅 2026-11-23")
-    eq(edit(.done, recTask, today: td, comment: "c"), "- [x] weekly 💬 c 🔁 every week 📅 2026-11-23 ✅ 2026-11-23")
+    // comment: a sub-bullet under the closed task, the task line is exactly what closing alone would give
+    try! "- [ ] weekly 🔁 every week 📅 2026-11-23\n- [ ] plain #t 📅 2026-11-23\n- [ ] other\n".write(toFile: rec, atomically: true, encoding: .utf8)
+    let plain = TaskItem.parse("- [ ] plain #t 📅 2026-11-23", line: 1)!
+    try! patchFile(rec, plain, .cancel, comment: "неактуально #сняли")
+    try! patchFile(rec, recTask, .done, comment: "c")
+    try! patchFile(rec, TaskItem.parse("- [ ] other", line: 2)!, .due("2026-12-01"), comment: "ignored: not a status change")
+    let withComments = try! String(contentsOfFile: rec, encoding: .utf8)
+    eq(withComments, """
+    - [ ] weekly 🔁 every week 📅 2026-11-30
+    - [x] weekly 🔁 every week 📅 2026-11-23 ✅ \(day())
+        - 💬 c
+    - [-] plain #t 📅 2026-11-23 ❌ \(day())
+        - 💬 неактуально #сняли
+    - [ ] other 📅 2026-12-01
+
+    """)
+    let parsed = parseNote(withComments, now: now).0
+    eq(parsed.map { $0.comment ?? "-" }.joined(separator: "|"), "-|c|неактуально #сняли|-")
+    eq(parsed[2].raw, edit(.cancel, plain)) // the task line carries no trace of the comment
     eq(boardLink("---\ntags: [a]\n---\n# Title\n**Board:** [[Dir/My board|board]] as columns\n## Today\n- [ ] t [[Other]]") ?? "nil", "Dir/My board")
     eq(boardLink("---\nup: \"[[Index]]\"\n---\n![[banner.png]]\nsee [[Board#Columns]]") ?? "nil", "Board")
     precondition(boardLink("# Title\n## Today\n- [ ] t [[Other]]") == nil && boardLink("- [ ] t [[Other]]\n[[Board]]") == nil)

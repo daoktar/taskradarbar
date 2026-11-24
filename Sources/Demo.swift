@@ -35,6 +35,7 @@ func writeDemoScreenshot(_ path: String, expanded: String?, lang: String = "en",
     - [ ] Collect feedback on the new onboarding #roadmap
     - [ ] Renew the domain 🔼 📅 \(d(0))
     - [x] Draft the agenda [[Planning notes]] #sync 📅 \(d(0)) ✅ \(d(0))
+        - 💬 Sent to everyone, two items moved to next week
     - [-] Order printed badges #roadmap ❌ \(d(-1))
     """
     let file = NSTemporaryDirectory() + "taskradarbar-demo.md"

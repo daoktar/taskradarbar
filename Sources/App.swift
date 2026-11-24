@@ -675,6 +675,9 @@ struct ClosedRow: View {
             .help(L("Reopen"))
             VStack(alignment: .leading, spacing: 3) {
                 Text(store.rich(task)).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true).help(task.title)
+                if let c = task.comment {
+                    Text("💬 " + c).font(.callout).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true).help(c)
+                }
                 Text((cancelled ? L("Cancelled") : L("Completed")) + (task.closedOn.map { " " + $0.suffix(2) + "." + $0.dropFirst(5).prefix(2) } ?? ""))
                     .font(.caption).foregroundStyle(.tertiary)
             }
